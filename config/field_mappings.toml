@@ -1,0 +1,106 @@
+# ══════════════════════════════════════════════════════════════════════
+#  Wazuh → OCSF → ClickHouse  —  Custom Field Mappings
+# ══════════════════════════════════════════════════════════════════════
+#
+# This file is hot-reloaded every 10 seconds.  Edit in place and the
+# pipeline picks up changes immediately — no restart required.
+#
+# ── OCSF schema version ───────────────────────────────────────────────
+#
+# Current stable release: OCSF 1.7.0
+# Check https://github.com/ocsf/ocsf-schema/releases for newer versions.
+# This string is written into every ClickHouse row — useful for filtering
+# after a schema upgrade.
+
+[meta]
+# OCSF schema version this deployment targets.
+ocsf_version = "1.7.0"
+
+# ── OCSF class auto-detection (no config required) ────────────────────
+#
+# Every alert is automatically assigned the correct OCSF class_uid from
+# rule.groups + decoder.name.  Reference table:
+#
+#  class_uid │ class_name              │ triggered by
+#  ──────────┼─────────────────────────┼────────────────────────────────────
+#  1001      │ File System Activity    │ syscheck / sysmon_file groups
+#  1006      │ Process Activity        │ sysmon_process / execve / audit_command
+#  2002      │ Vulnerability Finding   │ vulnerability-detector group
+#  2003      │ Compliance Finding      │ sca / oscap / ciscat groups
+#  2004      │ Detection Finding       │ DEFAULT — all other rules
+#  3001      │ Account Change          │ adduser / userdel / usermod groups
+#  3002      │ Authentication          │ sshd / pam / sudo / authentication*
+#  4001      │ Network Activity        │ firewall / suricata / fortigate…
+#  4002      │ HTTP Activity           │ nginx / apache / iis decoders; web* groups
+#  4003      │ DNS Activity            │ named / dns decoder
+#  4004      │ DHCP Activity           │ dhcpd decoder / dhcp group
+#
+
+# ── Custom decoder field mappings ─────────────────────────────────────
+#
+# Map fields from your own decoders to OCSF columns.
+#
+# Key:   field name as it appears in the Wazuh alert "data" object.
+#        • Nested objects:   "win.eventdata.myField"   (navigated)
+#        • Literal dot key:  "myapp.client_ip"          (exact match first)
+#
+# Value: target OCSF column name OR any custom name.
+#
+#   Standard targets (fill the typed ClickHouse column if still empty):
+#     src_ip, dst_ip, src_port, dst_port
+#     nat_src_ip, nat_dst_ip, nat_src_port, nat_dst_port
+#     actor_user, target_user, domain
+#     url, http_method, http_status
+#     process_name, process_id, file_name
+#     app_name, rule_name, category
+#     action, status
+#     interface_in, interface_out
+#     src_hostname, dst_hostname
+#     bytes_in, bytes_out
+#     network_protocol
+#
+#   Unknown targets go into the `extensions` JSON column.
+#
+# ── Examples (uncomment + adjust) ─────────────────────────────────────
+
+[field_mappings]
+# Map a custom app's source address to the OCSF src_ip column:
+# "myapp.client_addr"        = "src_ip"
+
+# Map a custom destination to dst_ip:
+# "myapp.server_addr"        = "dst_ip"
+
+# Map a custom username field:
+# "myapp.current_user"       = "actor_user"
+
+# Map a custom threat-name field to rule_name:
+# "myapp.threat_name"        = "rule_name"
+
+# Store a vendor-specific numeric score in extensions{}:
+# "myapp.risk_score"         = "vendor_risk_score"
+
+# FortiGate app-category (if not already picked up by built-in mapping):
+# "appcat"                   = "category"
+
+# Palo Alto application name override:
+# "pan.app"                  = "app_name"
+
+# CrowdStrike / EDR process hash into extensions:
+# "crowdstrike.sha256"       = "process_sha256"
+
+
+# ── OCSF schema migration (column renames) ────────────────────────────
+#
+# When upgrading to a new OCSF version that renames ClickHouse columns,
+# add entries here.  At startup the binary will print the exact
+# ALTER TABLE statements you need to run — but will NOT execute them
+# automatically (to prevent accidental production disruptions).
+#
+# Format:  "old_column_name" = "new_column_name"
+#
+# Example (OCSF 1.x → 2.0 hypothetical rename):
+# [ocsf_field_renames]
+# "finding_title"  = "finding.title"
+# "attack_id"      = "mitre_attack_id"
+
+[ocsf_field_renames]

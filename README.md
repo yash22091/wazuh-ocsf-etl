@@ -1,0 +1,1027 @@
+# wazuh-ocsf-etl
+
+A production-grade Wazuh → OCSF → ClickHouse pipeline written in Rust.
+
+Reads `alerts.json` exactly like Filebeat reads a log file — tracking inode and byte offset — transforms every alert to the [OCSF 1.7.0](https://github.com/ocsf/ocsf-schema/releases/tag/v1.7.0) schema, and bulk-inserts into ClickHouse. Single 3.8 MB static binary, no JVM, no agents, no Elasticsearch.
+
+```
+Wazuh manager
+  └─ /var/ossec/logs/alerts/alerts.json
+        │  (inotify-free async tail)
+        ▼
+  wazuh-ocsf-etl  ──transform + classify──▶  ClickHouse
+        │
+        └─ state/alerts.pos   (inode + byte offset — survives restarts)
+```
+
+---
+
+## Table of contents
+
+1. [Requirements](#1-requirements)
+2. [Build](#2-build)
+3. [ClickHouse setup](#3-clickhouse-setup)
+4. [Configure the pipeline](#4-configure-the-pipeline)
+5. [Deploy as a systemd service](#5-deploy-as-a-systemd-service)
+6. [ZeroMQ input mode (zero disk I/O)](#6-zeromq-input-mode-zero-disk-io)
+7. [First-run behaviour (large existing files)](#7-first-run-behaviour-large-existing-files)
+8. [Peak EPS tuning](#8-peak-eps-tuning)
+9. [Custom field mappings](#9-custom-field-mappings)
+10. [Log rotation](#10-log-rotation)
+11. [Upgrading](#11-upgrading)
+12. [Troubleshooting](#12-troubleshooting)
+13. [OCSF class reference](#13-ocsf-class-reference)
+14. [Wazuh rule fields in ClickHouse](#14-wazuh-rule-fields-in-clickhouse)
+15. [Wazuh cluster deployment](#15-wazuh-cluster-deployment)
+
+---
+
+## 1. Requirements
+
+| Component | Minimum version | Notes |
+|---|---|---|
+| **Rust toolchain** | 1.75+ stable | Only for building; not needed at runtime |
+| **ClickHouse** | 22.x+ | HTTP interface must be reachable |
+| **Wazuh manager** | 4.x | Needs `alerts.json` enabled |
+| **OS** | Linux x86_64 | Tested on Ubuntu 22.04 / RHEL 9 |
+
+Enable JSON alerts in Wazuh if not already on:
+
+```xml
+<!-- /var/ossec/etc/ossec.conf -->
+<ossec_config>
+  <global>
+    <jsonout_output>yes</jsonout_output>
+  </global>
+</ossec_config>
+```
+
+Then restart: `systemctl restart wazuh-manager`
+
+---
+
+## 2. Build
+
+```bash
+# Clone / copy source
+cd /root/rust-ocsf
+
+# Release build (optimised, ~3.8 MB)
+cargo build --release
+
+# Binary location
+ls -lh target/release/wazuh-ocsf-etl
+```
+
+To cross-compile for a target without Rust installed, copy the single binary — it has no runtime dependencies.
+
+---
+
+## 3. ClickHouse setup
+
+**No manual setup required.** On first start the binary automatically:
+
+1. Creates the database (`CREATE DATABASE IF NOT EXISTS wazuh_ocsf`)
+2. Creates each table the first time data arrives for that agent/location
+
+Tables are created per-agent (e.g. `wazuh_ocsf.ocsf_web_server_01`) or per-source for shared locations (e.g. `wazuh_ocsf.ocsf_aws_cloudtrail`). All DDL uses `IF NOT EXISTS` so restarts and re-deployments are safe.
+
+The only prerequisite is that the ClickHouse user has `CREATE DATABASE`, `CREATE TABLE`, and `INSERT` privileges on the target database. The default `default` user has all of these out of the box.
+
+Each table uses:
+
+- `MergeTree` engine with `ORDER BY (class_uid, device_name, time)` — lowest-cardinality column first for maximum primary key pruning
+- `PARTITION BY toYYYYMM(time)` — monthly partitions (12/year), avoids partition explosion at high EPS
+- `LowCardinality(String)` on all enum-like columns (severity, class, http_method, protocol, …) — 3–10× compression + faster GROUP BY
+- `Delta+ZSTD` codecs on numeric sequences (ports, PIDs, byte counters, timestamps)
+- `ZSTD(3)` on high-entropy strings (IPs, URLs, JSON blobs)
+- `index_granularity = 4096` — finer granules for better skip-index selectivity
+- Bloom-filter skip indexes on IPs, users, hostnames, filenames, URLs
+- `minmax` skip indexes on `severity_id`, `class_uid`, `type_uid`, `http_status`
+- Automatic TTL via `DATA_TTL_DAYS` (default 90 days)
+
+---
+
+## 4. Configure the pipeline
+
+Create a `.env` file in the working directory (or set the variables as environment variables for systemd):
+
+```bash
+$EDITOR .env
+```
+
+### All environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `CLICKHOUSE_URL` | `http://localhost:8123` | ClickHouse HTTP endpoint |
+| `CLICKHOUSE_DATABASE` | `wazuh_ocsf` | Target database |
+| `CLICKHOUSE_USER` | `default` | ClickHouse username |
+| `CLICKHOUSE_PASSWORD` | *(empty)* | ClickHouse password |
+| `ALERTS_FILE` | `/var/ossec/logs/alerts/alerts.json` | Full path to Wazuh alerts JSON (FILE mode only) |
+| `INPUT_MODE` | `file` | Input source: `file` or `zeromq` — only one active at a time |
+| `ZEROMQ_URI` | `tcp://localhost:11111` | ZeroMQ URI to subscribe to (ZEROMQ mode only) |
+| `STATE_FILE` | `state/alerts.pos` | Where to persist inode + byte offset |
+| `SEEK_TO_END_ON_FIRST_RUN` | `true` | First-run behaviour — see [§6](#6-first-run-behaviour-large-existing-files) |
+| `BATCH_SIZE` | `5000` | Flush a per-table buffer once it reaches this many rows — tune up for high EPS |
+| `FLUSH_INTERVAL_SECS` | `5` | Also flush on a timer when batch not yet full (low-EPS safety net) |
+| `CHANNEL_CAP` | `50000` | Internal async queue depth between reader and writer (~1 KB/slot, ≈50 MB) |
+| `SPECIAL_LOCATIONS` | *(empty)* | Comma-separated location names routed to shared tables |
+| `DATA_TTL_DAYS` | `90` | Delete rows older than N days (empty = keep forever) |
+| `RUST_LOG` | `info` | Log level: `error`, `warn`, `info`, `debug`, `trace` |
+
+### Minimal `.env` for a standard deployment
+
+```dotenv
+CLICKHOUSE_URL=http://clickhouse.internal:8123
+CLICKHOUSE_DATABASE=wazuh_ocsf
+CLICKHOUSE_USER=wazuh_etl
+CLICKHOUSE_PASSWORD=strongpassword
+ALERTS_FILE=/var/ossec/logs/alerts/alerts.json
+DATA_TTL_DAYS=180
+```
+
+### `config/field_mappings.toml`
+
+This file is **hot-reloaded every 10 seconds** — no restart needed.  
+See [§7](#7-custom-field-mappings) for details.
+
+---
+
+## 5. Deploy as a systemd service
+
+### Install the binary
+
+```bash
+install -m 755 target/release/wazuh-ocsf-etl /usr/local/bin/
+```
+
+### Create a dedicated user
+
+```bash
+useradd -r -s /sbin/nologin -d /opt/wazuh-ocsf wazuh-ocsf
+mkdir -p /opt/wazuh-ocsf/{state,config}
+cp .env /opt/wazuh-ocsf/.env
+cp config/field_mappings.toml /opt/wazuh-ocsf/config/
+chown -R wazuh-ocsf:wazuh-ocsf /opt/wazuh-ocsf
+```
+
+The service user needs read access to `alerts.json`:
+
+```bash
+# Add wazuh-ocsf to the wazuh group (or set ACL)
+usermod -aG wazuh wazuh-ocsf
+# Confirm access
+sudo -u wazuh-ocsf head -1 /var/ossec/logs/alerts/alerts.json
+```
+
+### systemd unit
+
+Create `/etc/systemd/system/wazuh-ocsf-etl.service`:
+
+```ini
+[Unit]
+Description=Wazuh → OCSF → ClickHouse ETL pipeline
+After=network.target
+# If ClickHouse runs on the same host:
+# After=network.target clickhouse-server.service
+
+[Service]
+Type=simple
+User=wazuh-ocsf
+Group=wazuh-ocsf
+WorkingDirectory=/opt/wazuh-ocsf
+EnvironmentFile=/opt/wazuh-ocsf/.env
+ExecStart=/usr/local/bin/wazuh-ocsf-etl
+Restart=on-failure
+RestartSec=5s
+
+# Give the process time to drain the channel and flush on stop
+TimeoutStopSec=30
+
+# Hard limits
+LimitNOFILE=65536
+MemoryMax=512M
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/wazuh-ocsf/state
+ReadOnlyPaths=/var/ossec/logs/alerts /opt/wazuh-ocsf/config
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Enable and start
+
+```bash
+systemctl daemon-reload
+systemctl enable --now wazuh-ocsf-etl
+systemctl status wazuh-ocsf-etl
+```
+
+### Watch live logs
+
+```bash
+journalctl -u wazuh-ocsf-etl -f
+```
+
+Expected healthy startup output:
+
+```
+INFO wazuh_ocsf_etl: ── Wazuh → OCSF → ClickHouse ETL ───────────────────
+INFO wazuh_ocsf_etl:   alerts_file      : /var/ossec/logs/alerts/alerts.json (size: 1024.3 MB)
+INFO wazuh_ocsf_etl:   start_offset     : 1073741824  (0.0 MB to process)
+INFO wazuh_ocsf_etl:   first_run_mode   : TAIL (start from end — existing data skipped)
+INFO wazuh_ocsf_etl:   clickhouse       : http://clickhouse.internal:8123 / wazuh_ocsf
+INFO wazuh_ocsf_etl:   batch_size       : 5000 rows  |  flush_interval: 5s
+INFO wazuh_ocsf_etl: pipeline running — awaiting alerts …
+```
+
+---
+
+## 6. ZeroMQ input mode (zero disk I/O)
+
+### What it is
+
+Instead of reading `alerts.json` from disk, the pipeline subscribes directly to the ZeroMQ PUB socket that `wazuh-analysisd` publishes every alert to — the moment it is generated, before it is even written to `alerts.json`.
+
+```
+FILE mode:   analysisd → disk write → alerts.json → poll → read → channel → ClickHouse
+ZEROMQ mode: analysisd ──────────────────────────────────► channel → ClickHouse
+```
+
+### What it eliminates
+
+| | FILE mode | ZEROMQ mode |
+|---|---|---|
+| Disk write by analysisd | Yes | Happens anyway (if enabled) but we don't read it |
+| Disk read by this pipeline | Yes | **No** |
+| Log rotation handling | Required | **Not needed** |
+| State file / byte offset | Required | **Not needed** |
+| 50 GB first-run problem | Needs protection | **Doesn't exist** |
+| Latency per alert | ~50–100 ms (poll) | **~0 ms (push)** |
+| Works from remote machine | No | **Yes** (`tcp://manager-ip:11111`) |
+| Backpressure | Channel blocks reader | Channel blocks subscriber |
+| Batching + ClickHouse insert | Same | Same |
+| OCSF transform | Same | Same |
+
+### Step 1 — Enable ZeroMQ on the Wazuh manager
+
+```xml
+<!-- /var/ossec/etc/ossec.conf on the Wazuh manager -->
+<global>
+  <zeromq_output>yes</zeromq_output>
+  <!-- Bind to all interfaces if pipeline runs on a different machine,
+       or localhost if collocated -->
+  <zeromq_uri>tcp://0.0.0.0:11111/</zeromq_uri>
+</global>
+```
+
+```bash
+systemctl restart wazuh-manager
+# Verify: should see "ZeroMQ output enabled" in /var/ossec/logs/ossec.log
+grep -i zeromq /var/ossec/logs/ossec.log | tail -5
+```
+
+### Step 2 — Configure this pipeline
+
+```dotenv
+# /opt/wazuh-ocsf/.env
+INPUT_MODE=zeromq
+ZEROMQ_URI=tcp://localhost:11111     # or tcp://<manager-ip>:11111
+```
+
+### Step 3 — Open firewall (remote machine only)
+
+```bash
+# On the Wazuh manager (if pipeline runs on a different host)
+firewall-cmd --permanent --add-port=11111/tcp
+firewall-cmd --reload
+```
+
+### Step 4 — Restart the pipeline
+
+```bash
+systemctl restart wazuh-ocsf-etl
+journalctl -u wazuh-ocsf-etl -f
+# Expected: "ZeroMQ input: subscribed to tcp://..."
+```
+
+### Choosing between FILE and ZEROMQ
+
+| Situation | Recommendation |
+|---|---|
+| Standard single-machine deployment | `INPUT_MODE=file` (default) — simpler, no Wazuh config change |
+| High EPS (>5000/sec), need lowest latency | `INPUT_MODE=zeromq` |
+| Pipeline on a separate machine from Wazuh | `INPUT_MODE=zeromq` — file mode can't work remotely |
+| Wazuh manager doesn't support ZeroMQ output | `INPUT_MODE=file` |
+| Want historical backfill of existing alerts.json | `INPUT_MODE=file` with `SEEK_TO_END_ON_FIRST_RUN=false` |
+
+> **Note — delivery guarantee:** ZeroMQ PUB/SUB is **at-most-once**. If ClickHouse is slow and the pipeline's internal channel fills, ZeroMQ's per-subscriber send buffer overflows and messages are **silently dropped** — they cannot be recovered. FILE mode is **at-least-once** (the channel blocks the reader; nothing is dropped). Prefer FILE mode for any deployment where zero data loss matters.
+
+> **Note — historical data:** ZeroMQ mode only delivers alerts generated after the subscription is established. If you need historical data from `alerts.json`, use FILE mode for the initial backfill, then switch to ZeroMQ.
+
+---
+
+## 7. First-run behaviour (large existing files)
+
+This is the most important setting for production systems.
+
+### Problem
+
+On a Wazuh manager that has been running for months, `alerts.json` can be 50 GB or more. Without protection, a pipeline starting for the first time would read the entire file from byte 0 — stalling for hours or days before catching up to live data.
+
+### How this pipeline handles it
+
+The state file (`state/alerts.pos`) stores the last byte offset. On startup:
+
+```
+STATE FILE EXISTS?
+│
+├─ YES → lseek(saved_offset)          ← instant, O(1), just a syscall
+│         Resume exactly where stopped
+│
+└─ NO  → FIRST RUN
+          │
+          ├─ SEEK_TO_END_ON_FIRST_RUN=true  (DEFAULT)
+          │   lseek(file_size)
+          │   Only new alerts from this moment onward are ingested
+          │   50 GB is never read
+          │
+          └─ SEEK_TO_END_ON_FIRST_RUN=false
+              lseek(0)
+              Full historical backfill from the beginning
+              WARNING: a 50 GB file will be read in full
+```
+
+The state file is saved **immediately** at startup when seeking to the end, so a `kill -9` before the first flush does not lose the position.
+
+### Choosing the right mode
+
+| Situation | Setting |
+|---|---|
+| New installation, existing file, only care about new alerts | `SEEK_TO_END_ON_FIRST_RUN=true` (default — no change needed) |
+| New installation, want all historical data in ClickHouse | `SEEK_TO_END_ON_FIRST_RUN=false` |
+| Any restart after the first run | Setting is ignored; saved offset is used |
+
+### Deleting state to force a re-read
+
+```bash
+# Stop service first!
+systemctl stop wazuh-ocsf-etl
+
+# Delete state → next start is treated as first run
+rm /opt/wazuh-ocsf/state/alerts.pos
+
+# Set SEEK_TO_END_ON_FIRST_RUN=false in .env if you want full replay
+systemctl start wazuh-ocsf-etl
+```
+
+---
+
+## 8. Peak EPS tuning
+
+The three variables below control exactly how batching works — same knobs as Logstash `pipeline.batch.size` / Filebeat `bulk_max_size`.
+
+### How batching works
+
+```
+Reader task ──── line ────▶  mpsc channel (CHANNEL_CAP slots)
+                                    │
+                                    ▼
+                           Processor task
+                                    │
+                     per-table in-memory Vec<OcsfRecord>
+                                    │
+                        flush trigger (whichever fires first):
+                          ├── Vec reaches BATCH_SIZE rows   → flush now
+                          └── FLUSH_INTERVAL_SECS timer     → flush now
+                                    │
+                                    ▼
+                            ClickHouse HTTP INSERT
+```
+
+- **BATCH_SIZE** fires when a single table's buffer fills up — at high EPS every flush carries a full batch, minimising HTTP round-trips.
+- **FLUSH_INTERVAL_SECS** fires even when the batch is not full — so at low EPS rows are never stuck in memory longer than this.
+- **CHANNEL_CAP** is the in-flight buffer between the two async tasks. When ClickHouse is slow the channel fills and the reader task blocks — memory stays bounded and nothing is dropped.
+
+### Recommended settings by EPS
+
+| EPS (alerts/sec) | `BATCH_SIZE` | `FLUSH_INTERVAL_SECS` | `CHANNEL_CAP` |
+|---|---|---|---|
+| < 100 | 1000 | 5 | 50000 |
+| 100 – 500 | 2000 | 5 | 50000 |
+| 500 – 2000 | 5000 (default) | 5 | 50000 |
+| 2000 – 10000 | 10000 | 3 | 100000 |
+| > 10000 | 25000 | 2 | 200000 |
+
+**Rule of thumb:** `CHANNEL_CAP` should be at least `BATCH_SIZE × 10` so the reader is never blocked by a single slow flush.
+
+### Measuring your EPS
+
+```bash
+# Count lines written to alerts.json over 60 seconds
+START=$(wc -l < /var/ossec/logs/alerts/alerts.json); sleep 60; END=$(wc -l < /var/ossec/logs/alerts/alerts.json); echo "EPS: $(( (END - START) / 60 ))"
+```
+
+Or query ClickHouse after a few minutes of ingestion:
+
+```sql
+SELECT
+    toStartOfMinute(timestamp) AS minute,
+    count() AS events,
+    round(count() / 60) AS eps
+FROM wazuh_ocsf.ocsf_my_server
+WHERE timestamp >= now() - INTERVAL 10 MINUTE
+GROUP BY minute
+ORDER BY minute;
+```
+
+---
+
+## 9. Custom field mappings
+
+Edit `/opt/wazuh-ocsf/config/field_mappings.toml`. Changes are picked up within 10 seconds — no restart needed.
+
+### Map a decoder field to a typed OCSF column
+
+```toml
+[field_mappings]
+# Source field (from Wazuh alert "data" object) = Target OCSF column
+"myapp.client_addr"   = "src_ip"
+"myapp.server_addr"   = "dst_ip"
+"myapp.current_user"  = "actor_user"
+"myapp.threat_name"   = "rule_name"
+```
+
+Standard target column names: `src_ip`, `dst_ip`, `src_port`, `dst_port`, `nat_src_ip`, `nat_dst_ip`, `nat_src_port`, `nat_dst_port`, `actor_user`, `target_user`, `domain`, `url`, `http_method`, `http_status`, `process_name`, `process_id`, `file_name`, `app_name`, `rule_name`, `category`, `action`, `status`, `interface_in`, `interface_out`, `src_hostname`, `dst_hostname`, `bytes_in`, `bytes_out`, `network_protocol`.
+
+Any unknown target name is stored in the `extensions` JSON column:
+
+```toml
+"crowdstrike.sha256"  = "process_sha256"    # → written to extensions{}
+"myapp.risk_score"    = "vendor_risk_score"  # → written to extensions{}
+```
+
+### Handle nested fields
+
+Dot notation navigates JSON objects:
+
+```toml
+"win.eventdata.ipAddress" = "src_ip"         # navigates win → eventdata → ipAddress
+"myapp.client_ip"         = "src_ip"         # literal key match (exact, no navigation)
+```
+
+### OCSF schema migration (column renames)
+
+When upgrading to a future OCSF version that renames columns:
+
+```toml
+[ocsf_field_renames]
+"finding_title" = "finding.title"   # old_column = new_column
+```
+
+The binary will print the required `ALTER TABLE` statements at startup but will not execute them automatically.
+
+---
+
+## 10. Log rotation
+
+Wazuh rotates `alerts.json` daily by default (renaming it to `alerts.json-YYYYMMDD.gz` and creating a new empty file). This pipeline handles rotation correctly in all cases:
+
+### Rotation while the pipeline is running
+
+- `FileTailer` checks the file's inode and current size on every EOF poll
+- When the inode changes or the file shrinks, rotation is detected
+- The tailer re-opens the new file from byte 0 automatically
+- No alerts are lost and no alerts are double-processed
+
+### Rotation while the pipeline is stopped
+
+- On startup, the saved inode in `state/alerts.pos` is compared to the current file's inode
+- If they differ, the file has been rotated while the service was down
+- The pipeline resets to offset 0 and reads the new file from the beginning
+- Alerts written to the old file after the last flush are not replayed (they were already rotated away)
+
+To ensure minimal data loss during planned maintenance, always stop the pipeline gracefully — it will drain the in-memory channel and do a final flush before exiting:
+
+```bash
+systemctl stop wazuh-ocsf-etl   # sends SIGTERM → graceful drain
+```
+
+---
+
+## 11. Upgrading
+
+```bash
+# 1. Build new binary
+cargo build --release
+
+# 2. Stop service gracefully (drains + saves state)
+systemctl stop wazuh-ocsf-etl
+
+# 3. Replace binary
+install -m 755 target/release/wazuh-ocsf-etl /usr/local/bin/
+
+# 4. Copy updated field_mappings if needed
+cp config/field_mappings.toml /opt/wazuh-ocsf/config/
+
+# 5. Start
+systemctl start wazuh-ocsf-etl
+journalctl -u wazuh-ocsf-etl -f
+```
+
+The state file is not affected — the pipeline resumes from the last saved offset.
+
+---
+
+## 12. Troubleshooting
+
+### Service fails to start
+
+```bash
+journalctl -u wazuh-ocsf-etl -n 50 --no-pager
+```
+
+**`Permission denied` on `alerts.json`**
+
+```bash
+# Verify access
+sudo -u wazuh-ocsf cat /var/ossec/logs/alerts/alerts.json | head -1
+
+# Fix: add service user to wazuh group
+usermod -aG wazuh wazuh-ocsf
+systemctl restart wazuh-ocsf-etl
+```
+
+**`Connection refused` to ClickHouse**
+
+```bash
+# Test connectivity from the service host
+curl -s "http://clickhouse.internal:8123/ping"   # should return "Ok."
+
+# Check ClickHouse is listening
+ss -tlnp | grep 8123
+```
+
+**`Authentication failed` for ClickHouse**
+
+Check `CLICKHOUSE_USER` and `CLICKHOUSE_PASSWORD` in `.env`. Verify the user exists and has write permissions on the database:
+
+```sql
+GRANT INSERT, CREATE TABLE ON wazuh_ocsf.* TO wazuh_etl;
+```
+
+---
+
+### No data in ClickHouse
+
+**Check the pipeline is receiving alerts:**
+
+```bash
+# Should increment every few seconds on an active Wazuh manager
+journalctl -u wazuh-ocsf-etl -f | grep -E "flushed|rows"
+```
+
+**Check the alerts file is being written to:**
+
+```bash
+tail -f /var/ossec/logs/alerts/alerts.json | head -5
+```
+
+**Check state file:**
+
+```bash
+cat /opt/wazuh-ocsf/state/alerts.pos
+# inode=12345678
+# offset=1073741824
+```
+
+If `offset` equals the current file size the pipeline is caught up — new rows will appear as new alerts arrive.
+
+**Check which tables exist:**
+
+```sql
+-- In ClickHouse
+SHOW TABLES FROM wazuh_ocsf;
+SELECT table, sum(rows) AS rows, formatReadableSize(sum(bytes)) AS size
+FROM system.parts
+WHERE database = 'wazuh_ocsf' AND active
+GROUP BY table
+ORDER BY rows DESC;
+```
+
+---
+
+### Pipeline is far behind (high catch-up gap)
+
+On restart the startup log shows how far behind the pipeline is:
+
+```
+INFO   catch_up : 8192.4 MB written while service was stopped
+```
+
+This is normal — the pipeline will work through the backlog as fast as ClickHouse can accept inserts. To monitor progress:
+
+```bash
+watch -n 2 'cat /opt/wazuh-ocsf/state/alerts.pos'
+```
+
+The `offset` number should increase steadily. ClickHouse insert throughput can be measured with:
+
+```sql
+SELECT event_time, query_duration_ms, written_rows
+FROM system.query_log
+WHERE type = 'QueryFinish' AND query LIKE 'INSERT INTO wazuh_ocsf%'
+ORDER BY event_time DESC
+LIMIT 20;
+```
+
+---
+
+### Duplicate rows after an unclean shutdown
+
+This pipeline provides **at-least-once** delivery. After a `kill -9` or power loss, the last unflushed batch (up to `BATCH_SIZE` rows) may be re-processed on the next start.
+
+To deduplicate in ClickHouse, use a `ReplacingMergeTree` or query with `FINAL`:
+
+```sql
+SELECT * FROM wazuh_ocsf.ocsf_web_server_01 FINAL
+WHERE timestamp >= now() - INTERVAL 1 HOUR;
+```
+
+Or force deduplication (expensive on large tables, run off-peak):
+
+```sql
+OPTIMIZE TABLE wazuh_ocsf.ocsf_web_server_01 FINAL;
+```
+
+---
+
+### High memory usage
+
+The in-memory channel holds up to 50,000 lines. If ClickHouse is slow or unavailable the channel fills and the reader task blocks — memory stays bounded. Check ClickHouse health:
+
+```bash
+curl -s "http://clickhouse.internal:8123/?query=SELECT+1"
+```
+
+---
+
+### Enable debug logging
+
+```bash
+# Edit .env or override inline
+RUST_LOG=debug systemctl restart wazuh-ocsf-etl
+journalctl -u wazuh-ocsf-etl -f
+```
+
+`RUST_LOG=trace` also prints every line read from the file — very verbose, use only on dev.
+
+---
+
+### Force a full historical re-ingest
+
+```bash
+systemctl stop wazuh-ocsf-etl
+rm /opt/wazuh-ocsf/state/alerts.pos
+
+# In /opt/wazuh-ocsf/.env set:
+#   SEEK_TO_END_ON_FIRST_RUN=false
+
+systemctl start wazuh-ocsf-etl
+journalctl -u wazuh-ocsf-etl -f
+# Watch: "first_run_mode : REPLAY (reading from byte 0 — full historical ingest)"
+```
+
+---
+
+### Reset to current end of file (discard backlog)
+
+```bash
+systemctl stop wazuh-ocsf-etl
+rm /opt/wazuh-ocsf/state/alerts.pos
+
+# In /opt/wazuh-ocsf/.env ensure:
+#   SEEK_TO_END_ON_FIRST_RUN=true   (this is the default)
+
+systemctl start wazuh-ocsf-etl
+# Watch: "first_run_mode : TAIL (start from end — existing data skipped)"
+```
+
+---
+
+## 13. OCSF class reference
+
+Every alert is automatically classified. The class is written to the `class_uid` and `class_name` columns in ClickHouse.
+
+| `class_uid` | `class_name` | Triggered by |
+|---|---|---|
+| 1001 | File System Activity | `syscheck`, `sysmon_file` rule groups |
+| 1006 | Process Activity | `sysmon_process`, `execve`, `audit_command` groups |
+| 2002 | Vulnerability Finding | `vulnerability-detector` group |
+| 2003 | Compliance Finding | `sca`, `oscap`, `ciscat` groups |
+| 2004 | Detection Finding | **Default** — all rules not matched above |
+| 3001 | Account Change | `adduser`, `userdel`, `usermod` groups |
+| 3002 | Authentication | `sshd`, `pam`, `sudo`, `authentication*` groups |
+| 4001 | Network Activity | `firewall`, `suricata`, `fortigate`, `snort`, `pfsense` decoders |
+| 4002 | HTTP Activity | `nginx`, `apache`, `iis` decoders; `web*` groups |
+| 4003 | DNS Activity | `named`, `dns` decoders |
+| 4004 | DHCP Activity | `dhcpd` decoder; `dhcp` group |
+
+---
+
+## 14. Wazuh rule fields in ClickHouse
+
+Every Wazuh rule field is preserved in the OCSF schema. Here is the exact mapping so SOC analysts know which column to query:
+
+### Core rule identity
+
+| Wazuh alert field | ClickHouse column | Type | Description |
+|---|---|---|---|
+| `rule.id` | **`finding_uid`** | `LowCardinality(String)` | Wazuh rule ID — e.g. `"5763"`. Primary key for rule-based searches. |
+| `rule.description` | **`finding_title`** | `String` | Human-readable rule description — e.g. `"SSH brute force attack"`. |
+| `rule.level` | **`wazuh_rule_level`** | `UInt8` | Raw Wazuh severity level 1–15. Stored alongside `severity_id` so you can filter `WHERE wazuh_rule_level >= 12`. |
+| `rule.groups` | **`finding_types`** | `String` (JSON array) | All rule groups as a JSON array — e.g. `["sshd","authentication_failed","brute_force"]`. |
+| `rule.firedtimes` | **`wazuh_fired_times`** | `UInt32` | Number of times this rule fired in the analysis window — repeated bursts show up immediately. |
+| `decoder.name` | **`decoder_name`** | `LowCardinality(String)` | The Wazuh decoder that parsed the raw log — e.g. `"sshd"`, `"auditd"`, `"windows_eventchannel"`. |
+
+### MITRE ATT&CK
+
+| Wazuh alert field | ClickHouse column | Type | Description |
+|---|---|---|---|
+| `rule.mitre.technique` | **`attack_technique`** | `String` | Technique name — e.g. `"Brute Force"`. |
+| `rule.mitre.id` | **`attack_id`** | `String` | Technique ID — e.g. `"T1110"`. |
+| `rule.mitre.tactic` | **`attack_tactic`** | `String` | Tactic name — e.g. `"Credential Access"`. |
+
+### Compliance tags
+
+Each column stores the framework-specific IDs as a comma-separated string (one row per alert). Use `LIKE` or `has()` on the array to filter.
+
+| Wazuh alert field | ClickHouse column | Example value |
+|---|---|---|
+| `rule.pci_dss` | **`pci_dss`** | `"10.2.4,10.2.5"` |
+| `rule.gdpr` | **`gdpr`** | `"IV_35.7.d"` |
+| `rule.hipaa` | **`hipaa`** | `"164.312.b"` |
+| `rule.nist_800_53` | **`nist_800_53`** | `"AU-14,AC-7"` |
+
+### OCSF severity mapping
+
+| Wazuh `rule.level` | `severity_id` | `severity` |
+|---|---|---|
+| 0 | 0 | Unknown |
+| 1–3 | 1 | Informational |
+| 4–6 | 2 | Low |
+| 7–9 | 3 | Medium |
+| 10–12 | 4 | High |
+| 13–15 | 5 | Critical |
+
+---
+
+### SOC query cookbook
+
+```sql
+-- Hunt by Wazuh rule ID (what a SOC analyst already knows)
+SELECT time, device_name, actor_user, src_ip, finding_title, wazuh_rule_level
+FROM wazuh_ocsf.ocsf_my_server
+WHERE finding_uid = '5763'
+ORDER BY time DESC
+LIMIT 50;
+
+-- All high/critical Wazuh rules (level 10+) in the last 24 hours
+SELECT finding_uid, finding_title, count() AS hits, max(wazuh_rule_level) AS max_level
+FROM wazuh_ocsf.ocsf_my_server
+WHERE wazuh_rule_level >= 10
+  AND time >= now() - INTERVAL 24 HOUR
+GROUP BY finding_uid, finding_title
+ORDER BY hits DESC
+LIMIT 20;
+
+-- Rules that fired repeatedly (burst detection)
+SELECT finding_uid, finding_title, src_ip, wazuh_fired_times
+FROM wazuh_ocsf.ocsf_my_server
+WHERE wazuh_fired_times > 5
+  AND time >= now() - INTERVAL 1 HOUR
+ORDER BY wazuh_fired_times DESC;
+
+-- Find by rule group (e.g. all brute_force group alerts)
+SELECT time, finding_uid, finding_title, src_ip, actor_user
+FROM wazuh_ocsf.ocsf_my_server
+WHERE finding_types LIKE '%brute_force%'
+  AND time >= today()
+ORDER BY time DESC;
+
+-- Find by decoder (e.g. all events parsed by auditd)
+SELECT time, finding_uid, finding_title, actor_user, file_name
+FROM wazuh_ocsf.ocsf_my_server
+WHERE decoder_name = 'auditd'
+  AND time >= now() - INTERVAL 6 HOUR
+ORDER BY time DESC;
+
+-- MITRE ATT&CK: all Credential Access events
+SELECT time, finding_uid, finding_title, attack_id, attack_technique, src_ip
+FROM wazuh_ocsf.ocsf_my_server
+WHERE attack_tactic LIKE '%Credential Access%'
+  AND time >= now() - INTERVAL 24 HOUR
+ORDER BY time DESC;
+
+-- PCI DSS compliance: rules covering requirement 10
+SELECT finding_uid, finding_title, count() AS hits
+FROM wazuh_ocsf.ocsf_my_server
+WHERE pci_dss LIKE '%10.%'
+  AND time >= now() - INTERVAL 7 DAY
+GROUP BY finding_uid, finding_title
+ORDER BY hits DESC;
+
+-- Authentication events in the last hour
+SELECT time, device_name, actor_user, src_ip, severity, finding_title
+FROM wazuh_ocsf.ocsf_my_server
+WHERE class_uid = 3002
+  AND time >= now() - INTERVAL 1 HOUR
+ORDER BY time DESC
+LIMIT 100;
+
+-- Top source IPs hitting the firewall today
+SELECT src_ip, count() AS attempts
+FROM wazuh_ocsf.ocsf_my_firewall
+WHERE class_uid = 4001
+  AND time >= today()
+GROUP BY src_ip
+ORDER BY attempts DESC
+LIMIT 20;
+```
+
+---
+
+## Behaviour summary
+
+| Scenario | Behaviour |
+|---|---|
+| First start, large existing file | Seek to end instantly — no replay (default) |
+| First start, want all history | Set `SEEK_TO_END_ON_FIRST_RUN=false` |
+| Restart after clean stop | Resume from exact saved byte offset |
+| Restart after `kill -9` | Re-process at most one batch (at-least-once) |
+| Log rotation while running | Auto-detected by inode change, re-opens new file |
+| Log rotation while stopped | Inode mismatch detected on startup, reads new file from 0 |
+| ClickHouse slow or down | Channel fills → reader blocks → no memory explosion, no data loss |
+| SIGTERM / `systemctl stop` | Drains channel → final flush → saves offset → clean exit |
+
+---
+
+## 15. Wazuh cluster deployment
+
+### How a Wazuh cluster works
+
+In a Wazuh cluster every node (master + workers) runs its own `wazuh-analysisd` and writes to its **own local** `/var/ossec/logs/alerts/alerts.json`. There is no central alerts file. Agents are assigned to workers for analysis; the master handles manager-level events (vulnerability scans, SCA, inventory).
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  Wazuh cluster                                                       │
+│                                                                      │
+│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐               │
+│  │  MASTER     │   │  WORKER-1   │   │  WORKER-N   │               │
+│  │  analysisd  │   │  analysisd  │   │  analysisd  │               │
+│  │  alerts.json│   │  alerts.json│   │  alerts.json│               │
+│  └──────┬──────┘   └──────┬──────┘   └──────┬──────┘               │
+│         │                 │                  │                       │
+│  ┌──────▼──────┐   ┌──────▼──────┐   ┌──────▼──────┐               │
+│  │  ETL        │   │  ETL        │   │  ETL        │               │
+│  │  instance-0 │   │  instance-1 │   │  instance-N │               │
+│  └──────┬──────┘   └──────┬──────┘   └──────┬──────┘               │
+│         └─────────────────┴──────────────────┘                      │
+│                            │                                         │
+└────────────────────────────▼─────────────────────────────────────────┘
+                    ClickHouse (shared)
+                    wazuh_ocsf database
+```
+
+### Deploy one ETL instance per Wazuh node
+
+Install the same binary on every node. Each instance reads from its **local** `alerts.json` and writes to the same shared ClickHouse server.
+
+**Run on each node (master and every worker):**
+
+```bash
+# Copy binary
+install -m 755 wazuh-ocsf-etl /usr/local/bin/
+
+# Working dir — per-node name prevents state file collisions
+export NODE=wazuh-master   # change to: wazuh-worker-1, wazuh-worker-2 …
+mkdir -p /opt/wazuh-ocsf-${NODE}/{state,config}
+useradd -r -s /sbin/nologin -d /opt/wazuh-ocsf-${NODE} wazuh-ocsf-${NODE}
+usermod -aG wazuh wazuh-ocsf-${NODE}
+chown -R wazuh-ocsf-${NODE}: /opt/wazuh-ocsf-${NODE}
+```
+
+### Per-node `.env`
+
+All instances point to the **same** ClickHouse. Only `STATE_FILE` differs (keeps the byte-offset local to the node's own `alerts.json`):
+
+```dotenv
+# /opt/wazuh-ocsf-wazuh-master/.env
+CLICKHOUSE_URL=http://clickhouse.internal:8123
+CLICKHOUSE_DATABASE=wazuh_ocsf
+CLICKHOUSE_USER=wazuh_etl
+CLICKHOUSE_PASSWORD=strongpassword
+ALERTS_FILE=/var/ossec/logs/alerts/alerts.json
+STATE_FILE=/opt/wazuh-ocsf-wazuh-master/state/alerts.pos
+DATA_TTL_DAYS=180
+```
+
+> `STATE_FILE` **must** stay on the local node — it tracks the byte offset into that node's own `alerts.json` and has no meaning on any other node.
+
+### Per-node systemd unit
+
+Create `/etc/systemd/system/wazuh-ocsf-etl-wazuh-master.service` (adjust name per node):
+
+```ini
+[Unit]
+Description=Wazuh → OCSF → ClickHouse ETL (wazuh-master)
+After=network.target wazuh-manager.service
+
+[Service]
+Type=simple
+User=wazuh-ocsf-wazuh-master
+Group=wazuh-ocsf-wazuh-master
+WorkingDirectory=/opt/wazuh-ocsf-wazuh-master
+EnvironmentFile=/opt/wazuh-ocsf-wazuh-master/.env
+ExecStart=/usr/local/bin/wazuh-ocsf-etl
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30
+LimitNOFILE=65536
+MemoryMax=512M
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/wazuh-ocsf-wazuh-master/state
+ReadOnlyPaths=/var/ossec/logs/alerts /opt/wazuh-ocsf-wazuh-master/config
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+systemctl daemon-reload
+systemctl enable --now wazuh-ocsf-etl-wazuh-master
+```
+
+### Distinguishing data from different nodes
+
+Every Wazuh alert JSON contains `"manager": {"name": "<hostname>"}`. This is stored in the `manager_name` column in every ClickHouse row — automatically, no configuration needed.
+
+```sql
+-- Which nodes are actively sending data?
+SELECT manager_name, count() AS events, max(time) AS last_seen
+FROM wazuh_ocsf.ocsf_my_agent
+WHERE time >= now() - INTERVAL 1 HOUR
+GROUP BY manager_name
+ORDER BY events DESC;
+
+-- Authentication failures across ALL nodes over last 24 h
+SELECT time, manager_name, device_name, actor_user, src_ip, severity
+FROM wazuh_ocsf.ocsf_my_agent
+WHERE class_uid = 3002
+  AND severity_id >= 3
+  AND time >= now() - INTERVAL 1 DAY
+ORDER BY time DESC
+LIMIT 200;
+
+-- Per-node event rate (EPS)
+SELECT
+    manager_name,
+    toStartOfMinute(time) AS minute,
+    count() / 60 AS eps
+FROM wazuh_ocsf.ocsf_my_agent
+WHERE time >= now() - INTERVAL 10 MINUTE
+GROUP BY manager_name, minute
+ORDER BY manager_name, minute;
+```
+
+### Concurrent inserts from multiple nodes into the same table
+
+ClickHouse is designed for this. `CREATE TABLE IF NOT EXISTS` is idempotent — if two ETL instances race to create the same table on first start, ClickHouse creates it once and the second `IF NOT EXISTS` call silently succeeds. Concurrent `INSERT` statements from multiple nodes into the same table are fully supported and are the normal operating mode for distributed ingestion pipelines.
+
+### ZeroMQ in cluster mode
+
+Each Wazuh node's `wazuh-analysisd` has its own ZeroMQ PUB socket. Deploy one ETL per node pointing to `tcp://localhost:11111`. Do **not** point multiple ETL instances at the same socket — each message is fanned out to every subscriber independently, so each instance would receive 100% of messages from only that one node.
+
+```dotenv
+# Each node's .env in ZeroMQ mode — always localhost
+INPUT_MODE=zeromq
+ZEROMQ_URI=tcp://localhost:11111
+```
+
+### Summary: single-node vs. cluster
+
+| | Single-node | Cluster |
+|---|---|---|
+| ETL instances | 1 | 1 per Wazuh node (master + each worker) |
+| `ALERTS_FILE` | `/var/ossec/logs/alerts/alerts.json` | Same — each reads its local copy |
+| `STATE_FILE` | Any path | **Must be different per node** |
+| ClickHouse target | One DB | **Same DB, same tables** |
+| Node identification | — | `manager_name` column populated automatically |
+| Code changes needed | — | **None** — same binary, different config |
