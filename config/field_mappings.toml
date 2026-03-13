@@ -61,31 +61,37 @@ ocsf_version = "1.7.0"
 #
 #   Unknown targets go into the `extensions` JSON column.
 #
-# ── Examples (uncomment + adjust) ─────────────────────────────────────
+# ── Built-in defaults (common Wazuh sources) ──────────────────────────
+#
+# These are shipped as defaults because they fire on every standard
+# Wazuh agent type.  They are all "fill-if-empty" — they never
+# overwrite a value already set by the built-in field-path arrays.
+#
+# Standard targets  → go into typed ClickHouse columns.
+# Unknown targets   → go into the `extensions` JSON column.
 
 [field_mappings]
-# Map a custom app's source address to the OCSF src_ip column:
+
+# ── Custom / site-specific decoder fields ─────────────────────────────────────
+#
+# Add entries HERE for fields your own decoders produce that are not already
+# handled by the built-in extraction in transform.rs.
+#
+# Standard Wazuh modules are extracted natively — no config required:
+#   • Vulnerability Detector : vulnerability.cve, .severity, .score.base, …
+#   • Windows Event Log       : win.system.eventID / channel / processID, …
+#                               win.eventdata.processName / logonType, …
+#   • dpkg / apt audit        : package, version, arch, dpkg_status
+#   • sudo / exec context     : uid, tty, pwd
+#
+# Examples (uncomment and adjust for your own decoders):
 # "myapp.client_addr"        = "src_ip"
-
-# Map a custom destination to dst_ip:
 # "myapp.server_addr"        = "dst_ip"
-
-# Map a custom username field:
 # "myapp.current_user"       = "actor_user"
-
-# Map a custom threat-name field to rule_name:
 # "myapp.threat_name"        = "rule_name"
-
-# Store a vendor-specific numeric score in extensions{}:
 # "myapp.risk_score"         = "vendor_risk_score"
-
-# FortiGate app-category (if not already picked up by built-in mapping):
 # "appcat"                   = "category"
-
-# Palo Alto application name override:
 # "pan.app"                  = "app_name"
-
-# CrowdStrike / EDR process hash into extensions:
 # "crowdstrike.sha256"       = "process_sha256"
 
 
