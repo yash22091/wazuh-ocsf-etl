@@ -657,7 +657,7 @@ fn write_unmapped_report(path: &Path) {
             "nat_src_ip","nat_dst_ip","nat_src_port","nat_dst_port",
             "actor_user","target_user","domain","url",
             "http_method","http_status","app_name","src_hostname","dst_hostname",
-            "file_name","process_name","process_id","rule_name","category",
+            "file_name","process_name","process_id","rule_name","app_category",
             "interface_in","interface_out","bytes_in","bytes_out",
             "network_protocol","action","status"
         ],
@@ -1177,7 +1177,8 @@ struct OcsfRecord {
     /// `class_uid * 100 + activity_id` — OCSF 1.7.0 required derived field.
     /// Uniquely identifies the specific event type within a class.
     type_uid:          u32,
-    /// 0=Unknown  1=Success  2=Failure  99=Other  (OCSF 1.7.0 §status_id)
+    /// 0=Unknown  1=New  2=InProgress  3=Suppressed  4=Resolved (Finding classes 2002/2003/2004)
+    /// 0=Unknown  1=Success  2=Failure  99=Other  (all operational event classes)
     status_id:         u8,
     /// 0=Unknown  1=Low  2=Medium  3=High — derived from Wazuh rule.level.
     confidence_id:     u8,
@@ -1231,7 +1232,10 @@ struct OcsfRecord {
 
     // ── Threat / category ─────────────────────────────────────────────────
     rule_name:         String,
-    category:          String,
+    /// Application/service category from firewall/UTM (e.g. FortiGate appcat,
+    /// PAN-OS pan.app_category). Named `app_category` to avoid confusion with
+    /// OCSF's own event classification fields `category_uid` / `category_name`.
+    app_category:      String,
 
     // ── Finding (Wazuh rule) ──────────────────────────────────────────────
     finding_title:     String,  // rule.description
@@ -1269,8 +1273,8 @@ struct OcsfRecord {
     extensions:        String,
     /// Top-level Wazuh fields outside the standard set.
     unmapped:          String,
-    /// The original raw line verbatim — complete audit trail.
-    raw_event:         String,
+    /// The original raw line verbatim — maps to OCSF `raw_data` attribute.
+    raw_data:          String,
 }
 
 // ─── JSON navigation helpers ──────────────────────────────────────────────────
@@ -1467,9 +1471,11 @@ fn routing_table(
 // ─── Severity ─────────────────────────────────────────────────────────────────
 
 fn map_severity(level: u64) -> (u8, &'static str) {
-    // OCSF 1.7.0 severity_id enum: 0=Unknown 1=Informational 2=Low 3=Medium
-    //   4=High 5=Critical 99=Other.  There is NO value 6 in the spec.
+    // OCSF 1.7.0 severity_id enum:
+    //   0=Unknown  1=Informational  2=Low  3=Medium  4=High  5=Critical
+    //   6=Fatal ("action too late")  99=Other
     // Wazuh levels run 0-15; level 15 is the highest severity → Critical (5).
+    // We do not emit 6=Fatal since Wazuh does not model unrecoverable failures.
     match level {
         0       => (0, "Unknown"),
         1..=3   => (1, "Informational"),
@@ -1788,7 +1794,7 @@ fn transform(
     let mut interface_in     = first_str(&data_val, IFACE_IN);
     let mut interface_out    = first_str(&data_val, IFACE_OUT);
     let mut rule_name        = first_str(&data_val, RULE_NAME);
-    let mut category         = first_str(&data_val, CATEGORY);
+    let mut app_category     = first_str(&data_val, CATEGORY);
     let mut action           = first_str(&data_val, ACTION);
     let mut status           = first_str(&data_val, STATUS);
 
@@ -1817,7 +1823,7 @@ fn transform(
                 "process_name"    => { if process_name.is_empty()  { process_name = val; } }
                 "process_id"      => { if process_id == 0 { process_id = val.parse().unwrap_or(0); } }
                 "rule_name"       => { if rule_name.is_empty()     { rule_name    = val; } }
-                "category"        => { if category.is_empty()      { category     = val; } }
+                "category"        => { if app_category.is_empty()  { app_category = val; } }
                 "action"          => { if action.is_empty()        { action          = val; } }
                 "status"          => { if status.is_empty()        { status          = val; } }
                 "nat_src_ip"      => { if nat_src_ip.is_empty()    { nat_src_ip      = val; } }
@@ -1953,14 +1959,37 @@ fn transform(
     // type_uid = class_uid * 100 + activity_id  (OCSF 1.7.0 §type_uid, required)
     let type_uid: u32 = ocsf_cls.class_uid * 100 + activity_id as u32;
 
-    // status_id: numeric status (OCSF 1.7.0 §status_id)
-    let status_id: u8 = match status.to_ascii_lowercase().as_str() {
-        "success" | "allow" | "allowed" | "pass" | "passed" => 1,
-        "failure" | "fail" | "failed" | "deny" | "denied"
-            | "block" | "blocked" | "drop" | "dropped"
-            | "reject" | "rejected" => 2,
-        "" => 0,
-        _ => 99,
+    // status_id: numeric status — DIFFERENT enums per OCSF 1.7.0 class:
+    //
+    // Operational classes (Network Activity, Authentication, File/Process/HTTP…):
+    //   0=Unknown  1=Success  2=Failure  99=Other
+    //
+    // Finding classes (Detection Finding 2004, Vulnerability Finding 2002,
+    //   Compliance Finding 2003):
+    //   0=Unknown  1=New  2=In Progress  3=Suppressed  4=Resolved
+    //   5=Archived  6=Deleted  99=Other
+    //
+    // Wazuh always generates *new* findings — default to 1 (New) for findings
+    // unless the raw status string explicitly says otherwise.
+    let status_id: u8 = match ocsf_cls.class_uid {
+        // ── Finding lifecycle status ───────────────────────────────────────
+        2002 | 2003 | 2004 => match status.to_ascii_lowercase().as_str() {
+            "in_progress" | "in progress" | "investigating" => 2,
+            "suppressed"  | "benign" | "false_positive"     => 3,
+            "resolved"    | "closed" | "remediated"         => 4,
+            "archived"                                      => 5,
+            "deleted"                                       => 6,
+            _                                               => 1, // New (default for all Wazuh findings)
+        },
+        // ── Operational event status ──────────────────────────────────────
+        _ => match status.to_ascii_lowercase().as_str() {
+            "success" | "allow" | "allowed" | "pass" | "passed" => 1,
+            "failure" | "fail" | "failed" | "deny" | "denied"
+                | "block" | "blocked" | "drop" | "dropped"
+                | "reject" | "rejected" => 2,
+            "" => 0,
+            _  => 99,
+        },
     };
 
     // confidence_id: derived from Wazuh rule.level (OCSF 1.7.0 §confidence_id)
@@ -2032,7 +2061,7 @@ fn transform(
         interface_in,
         interface_out,
         rule_name,
-        category,
+        app_category,
         finding_title:    rule_desc,
         finding_uid:      rule_id,
         finding_types,
@@ -2051,7 +2080,7 @@ fn transform(
         event_data,
         extensions:       extensions_json,
         unmapped,
-        raw_event:        raw.to_string(),
+        raw_data:         raw.to_string(),
     }))
 }
 
@@ -2178,7 +2207,9 @@ async fn ensure_table(
 
     -- ── Threat / category ─────────────────────────────────────────────────
     `rule_name`         String                          CODEC(ZSTD(3)),
-    `category`          LowCardinality(String)          CODEC(ZSTD(1)),
+    -- app_category: application/service category (firewall appcat, UTM category).
+    -- Distinct from OCSF event category_uid/category_name classification fields.
+    `app_category`      LowCardinality(String)          CODEC(ZSTD(1)),
 
     -- ── Finding (Wazuh rule) ──────────────────────────────────────────────
     `finding_title`     String                          CODEC(ZSTD(3)),
@@ -2209,7 +2240,7 @@ async fn ensure_table(
     `event_data`        String                          CODEC(ZSTD(3)),
     `extensions`        String                          CODEC(ZSTD(3)),
     `unmapped`          String                          CODEC(ZSTD(3)),
-    `raw_event`         String                          CODEC(ZSTD(3)),
+    `raw_data`          String                          CODEC(ZSTD(3)),  -- OCSF raw_data attribute
 
     -- ── Skip indexes ──────────────────────────────────────────────────────
     -- bloom_filter: probabilistic membership test — skips granules that
