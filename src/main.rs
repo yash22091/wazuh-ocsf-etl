@@ -90,12 +90,25 @@ const SRC_IP: &[&str] = &[
     "win.eventdata.ipAddress", "win.eventdata.sourceAddress", "win.eventdata.IpAddress",
     // AWS CloudTrail / GuardDuty
     "aws.sourceIPAddress", "aws.requestParameters.ipAddress",
+    // AWS GuardDuty — network connection & port probe (deep nested)
+    "aws.service.action.networkConnectionAction.remoteIpDetails.ipAddressV4",
+    "aws.service.action.portProbeAction.portProbeDetails.remoteIpDetails.ipAddressV4",
+    // AWS VPC Flow Logs (Wazuh aws-vpcflow decoder)
+    "srcAddr",
     // GCP Audit
     "gcp.protoPayload.requestMetadata.callerIp",
+    // Azure AD / Azure Monitor
+    "azure.callerIpAddress",
+    "azure.properties.ipAddress",
+    "azure.properties.clientIP",
+    // Okta System Log
+    "okta.client.ipAddress",
     // Office365
     "office365.ActorIpAddress", "office365.ClientIP",
     // GitHub audit
     "github.actor_ip",
+    // Zeek/Bro network sensor
+    "zeek.id.orig_h",
     // VPN / IPSec / proxy
     "remip",           // remote peer IP in IPSec/VPN tunnels
     "tunnelip",        // tunnel source endpoint IP
@@ -113,6 +126,12 @@ const DST_IP: &[&str] = &[
     "dhost",   // CEF/ArcSight destination host (IP)
     "alert.dest_ip",
     "win.eventdata.destinationIp", "win.eventdata.DestinationIp",
+    // AWS VPC Flow Logs
+    "dstAddr",
+    // AWS GuardDuty — local (victim) IP
+    "aws.service.action.networkConnectionAction.localIpDetails.ipAddressV4",
+    // Zeek/Bro network sensor
+    "zeek.id.resp_h",
 ];
 
 const SRC_PORT: &[&str] = &[
@@ -125,6 +144,12 @@ const SRC_PORT: &[&str] = &[
     "alert.src_port",
     "win.eventdata.ipPort", "win.eventdata.IpPort",
     "cs2",
+    // AWS VPC Flow Logs
+    "srcPort",
+    // AWS GuardDuty — remote (attacker) port
+    "aws.service.action.networkConnectionAction.remotePortDetails.port",
+    // Zeek/Bro network sensor originator port
+    "zeek.id.orig_p",
 ];
 
 const DST_PORT: &[&str] = &[
@@ -134,6 +159,12 @@ const DST_PORT: &[&str] = &[
     "dport",   // generic destination port alias (haproxy, misc)
     "alert.dest_port",
     "win.eventdata.destinationPort", "win.eventdata.DestinationPort",
+    // AWS VPC Flow Logs
+    "dstPort",
+    // AWS GuardDuty — local (victim) port
+    "aws.service.action.networkConnectionAction.localPortDetails.port",
+    // Zeek/Bro network sensor responder port
+    "zeek.id.resp_p",
 ];
 
 const NAT_SRC_IP: &[&str] = &[
@@ -189,6 +220,10 @@ const BYTES_IN: &[&str] = &[
     "BytesReceived",     // Check Point / Cylance
     "bytes_received",    // pfSense / generic
     "bytes_from_server", // proxy / WAF logs (server → client = inbound)
+    // AWS CloudTrail S3 / Transfer data events
+    "aws.additionalEventData.bytesTransferredIn",
+    // AWS VPC Flow — total bytes for the flow
+    "aws.bytes",
 ];
 
 const BYTES_OUT: &[&str] = &[
@@ -199,6 +234,8 @@ const BYTES_OUT: &[&str] = &[
     // Case variants / other vendors
     "BytesSent",         // Check Point / Cylance
     "bytes_from_client", // proxy / WAF logs (client → server = outbound)
+    // AWS CloudTrail S3 / Transfer data events
+    "aws.additionalEventData.bytesTransferredOut",
 ];
 
 const ACTOR_USER: &[&str] = &[
@@ -231,6 +268,12 @@ const ACTOR_USER: &[&str] = &[
     "aws.userIdentity.sessionContext.sessionIssuer.userName",
     // GCP
     "gcp.protoPayload.authenticationInfo.principalEmail",
+    // Azure AD / Azure Monitor sign-in logs
+    "azure.properties.userPrincipalName",
+    "azure.properties.initiatedBy.user.userPrincipalName",
+    // Okta System Log — email-based actor identity
+    "okta.actor.alternateId",
+    "okta.actor.displayName",
     // Office365
     "office365.UserId",
     // GitHub
@@ -258,6 +301,12 @@ const DOMAIN: &[&str] = &[
     "win.eventdata.subjectDomainName", "win.eventdata.SubjectDomainName",
     "win.eventdata.targetDomainName",  "win.eventdata.TargetDomainName",
     "aws.userIdentity.accountId",
+    // Azure tenant
+    "azure.tenantId",
+    // GCP project
+    "gcp.resource.labels.project_id",
+    // GitHub organisation
+    "github.org",
 ];
 
 const URL: &[&str] = &[
@@ -265,9 +314,15 @@ const URL: &[&str] = &[
     "URL", // uppercase variant (some CEF / HP ArcSight decoders)
     "win.eventdata.objectName",
     "aws.requestParameters.url",
+    // AWS S3 — bucket name / key being accessed
+    "aws.requestParameters.bucketName",
     "gcp.protoPayload.resourceName",
     "github.repo",
     "office365.ObjectId",
+    // Azure — resource URI
+    "azure.properties.resourceUri",
+    // Okta — target resource display name
+    "okta.target.displayName",
 ];
 
 const HTTP_METHOD: &[&str] = &[
@@ -286,6 +341,14 @@ const APP_NAME: &[&str] = &[
     "product_name",  // generic product/software name (many vendors)
     "product",       // compact product field
     "protocol",      // some decoders re-use protocol as app
+    // AWS CloudTrail — which AWS service was called (e.g. "ec2.amazonaws.com")
+    "aws.eventSource",
+    // Azure — resource/service type
+    "azure.resourceType",
+    "azure.properties.appDisplayName",
+    // Okta — client application / browser
+    "okta.target.alternateId",
+    "okta.client.userAgent.browser",
 ];
 
 const FILE_NAME: &[&str] = &[
@@ -366,6 +429,10 @@ const IFACE_IN: &[&str] = &[
     "in_interface",            // generic inbound interface
     "inzone",                  // FortiGate ingress zone
     "ifname",  "if_name",     // interface name (pfSense, Linux)
+    // AWS VPC Flow — ENI that captured the traffic
+    "interfaceId",
+    // Zeek/Bro — log path indicates sensor/interface (e.g. "conn", "dns")
+    "zeek._path",
 ];
 
 const IFACE_OUT: &[&str] = &[
@@ -411,6 +478,12 @@ const ACTION: &[&str] = &[
     "act",                // CEF
     "aws.eventName",
     "gcp.protoPayload.methodName",
+    // Azure AD / Monitor — the operation performed
+    "azure.operationName",
+    "azure.properties.operationType",
+    // Okta System Log — human-readable event description and type
+    "okta.displayMessage",
+    "okta.eventType",
     "github.action",
     "office365.Operation",
     "defender.action",    // Windows Defender quarantine / block / allow
@@ -426,6 +499,11 @@ const STATUS: &[&str] = &[
     "win.eventdata.status",  "win.eventdata.Status",
     "win.eventdata.failureReason",
     "aws.errorCode",
+    // Okta outcome — SUCCESS, FAILURE, SKIPPED, ALLOW, DENY, UNKNOWN
+    "okta.outcome.result",
+    // Azure AD — "0" = success, non-zero string = error code
+    "azure.resultType",
+    "azure.resultDescription",
     "audit.res",
     "audit.success",   // auditd success field ("yes"/"no" or "1"/"0")
 ];
@@ -1133,18 +1211,40 @@ fn first_u64(root: &Value, paths: &[&str]) -> u64 {
 /// Retrieve a field value from the `data` object, trying the **literal key
 /// first** (handles decoders like auditd that use dotted literal key names
 /// such as `"audit.command"`), then falling back to nested path navigation.
-fn get_data_field<'a>(data: &'a Value, field: &str) -> &'a str {
-    // 1. Try literal key (e.g. data["audit.command"] when the JSON key
-    //    literally contains a dot because Wazuh flattened it)
+/// Coerce a JSON scalar (String, Number, Bool) to a String.
+/// Arrays and objects are ignored (return empty).
+fn value_to_str(v: &Value) -> String {
+    match v {
+        Value::String(s) if !s.is_empty() => s.clone(),
+        Value::Number(n)                  => n.to_string(),
+        Value::Bool(b)                    => b.to_string(),
+        _                                 => String::new(),
+    }
+}
+
+/// Look up `field` inside the Wazuh `data` sub-object and return its value as a
+/// String — works for **strings, numbers and booleans** (all three are common in
+/// JSON-decoder output).  Two strategies are tried in order:
+///
+/// 1. **Literal key** — `data["audit.command"]` (flattened dotted key from auditd/some decoders).
+/// 2. **Nested path** — split on `.` and walk the JSON tree:  `data → win → eventdata → ipAddress`.
+fn get_data_field(data: &Value, field: &str) -> String {
+    // 1. Try literal key first
     if let Some(obj) = data.as_object() {
         if let Some(v) = obj.get(field) {
-            if let Some(s) = v.as_str() {
-                if !s.is_empty() { return s; }
-            }
+            let s = value_to_str(v);
+            if !s.is_empty() { return s; }
         }
     }
-    // 2. Navigate nested path (the normal case)
-    jpath(data, field)
+    // 2. Navigate nested path — traverse each segment, coerce the leaf
+    let mut cur = data;
+    for key in field.split('.') {
+        match cur.as_object().and_then(|m| m.get(key)) {
+            Some(v) => cur = v,
+            None    => return String::new(),
+        }
+    }
+    value_to_str(cur)
 }
 
 // ─── Sanitise / route ─────────────────────────────────────────────────────────
@@ -1251,6 +1351,45 @@ fn classify_event(groups: &[&str], decoder: &str, location: &str) -> OcsfClass {
     // Pre-lower once; decoder names are always ASCII.
     let dec = decoder.to_ascii_lowercase();
     let loc = location.to_ascii_lowercase();
+
+    // ── Cloud / Integration sources ──────────────────────────────────────
+    // Must run BEFORE generic category checks — these sources have well-known
+    // decoder names that unambiguously identify the log type.
+
+    // AWS VPC Flow Logs → Network Activity (flow records, not findings)
+    if dec.contains("vpcflow") || dec.contains("vpc-flow") || g("amazon-vpcflow") {
+        return cls!(4001, "Network Activity", 4, "Network Activity");
+    }
+
+    // AWS GuardDuty → Vulnerability Finding (threat intelligence findings)
+    if dec.contains("guardduty") || dec.contains("guard-duty")
+        || g("amazon-guardduty") || g("aws-guardduty")
+    {
+        return cls!(2002, "Vulnerability Finding", 2, "Findings");
+    }
+
+    // Okta / Azure AD / Cloud IdP → Authentication
+    if dec.contains("okta") || dec.contains("azure-ad") || dec.contains("azure_ad")
+        || dec.contains("azure-active") || dec.contains("onelogin")
+        || g("okta") || g("azure-ad") || g("azure_ad") || g("onelogin")
+    {
+        return cls!(3002, "Authentication", 3, "Identity & Access Management");
+    }
+
+    // Zeek/Bro network sensor → Network Activity
+    if dec.contains("zeek") || dec.contains("bro-ids")
+        || g("zeek") || g("bro")
+    {
+        return cls!(4001, "Network Activity", 4, "Network Activity");
+    }
+
+    // AWS CloudTrail authentication events → Authentication
+    // (other CloudTrail events fall through to Detection Finding)
+    if (dec.contains("cloudtrail") || dec.contains("aws-cloudtrail"))
+        && ga(&["authentication", "aws_iam", "aws-iam"])
+    {
+        return cls!(3002, "Authentication", 3, "Identity & Access Management");
+    }
 
     // ── Cat 1: System Activity ──────────────────────────────────────────
 
@@ -1447,13 +1586,13 @@ fn transform(
     let mut dst_ip           = first_str(&data_val, DST_IP);
     let mut src_port         = first_port(&data_val, SRC_PORT);
     let mut dst_port         = first_port(&data_val, DST_PORT);
-    let nat_src_ip           = first_str(&data_val, NAT_SRC_IP);
-    let nat_dst_ip           = first_str(&data_val, NAT_DST_IP);
-    let nat_src_port         = first_port(&data_val, NAT_SRC_PORT);
-    let nat_dst_port         = first_port(&data_val, NAT_DST_PORT);
-    let network_protocol     = first_str(&data_val, PROTOCOL);
-    let bytes_in             = first_u64(&data_val, BYTES_IN);
-    let bytes_out            = first_u64(&data_val, BYTES_OUT);
+    let mut nat_src_ip       = first_str(&data_val, NAT_SRC_IP);
+    let mut nat_dst_ip       = first_str(&data_val, NAT_DST_IP);
+    let mut nat_src_port     = first_port(&data_val, NAT_SRC_PORT);
+    let mut nat_dst_port     = first_port(&data_val, NAT_DST_PORT);
+    let mut network_protocol = first_str(&data_val, PROTOCOL);
+    let mut bytes_in         = first_u64(&data_val, BYTES_IN);
+    let mut bytes_out        = first_u64(&data_val, BYTES_OUT);
     let mut actor_user       = first_str(&data_val, ACTOR_USER);
     let mut target_user      = first_str(&data_val, TARGET_USER);
     let mut domain           = first_str(&data_val, DOMAIN);
@@ -1462,12 +1601,12 @@ fn transform(
     let mut http_status      = first_port(&data_val, HTTP_STATUS); // reuse port fn (u16)
     let mut app_name         = first_str(&data_val, APP_NAME);
     let mut src_hostname     = first_str(&data_val, SRC_HOSTNAME);
-    let dst_hostname         = first_str(&data_val, DST_HOSTNAME);
+    let mut dst_hostname     = first_str(&data_val, DST_HOSTNAME);
     let mut file_name        = first_str(&data_val, FILE_NAME);
     let mut process_name     = first_str(&data_val, PROCESS_NAME);
     let mut process_id       = first_port(&data_val, PROCESS_ID) as u32; // reuse port fn
-    let interface_in         = first_str(&data_val, IFACE_IN);
-    let interface_out        = first_str(&data_val, IFACE_OUT);
+    let mut interface_in     = first_str(&data_val, IFACE_IN);
+    let mut interface_out    = first_str(&data_val, IFACE_OUT);
     let mut rule_name        = first_str(&data_val, RULE_NAME);
     let mut category         = first_str(&data_val, CATEGORY);
     let mut action           = first_str(&data_val, ACTION);
@@ -1481,7 +1620,6 @@ fn transform(
         for (wazuh_field, ocsf_target) in &custom.field_map {
             let val = get_data_field(&data_val, wazuh_field.as_str());
             if val.is_empty() { continue; }
-            let val = val.to_string();
             match ocsf_target.as_str() {
                 "src_ip"          => { if src_ip.is_empty()       { src_ip       = val; } }
                 "dst_ip"          => { if dst_ip.is_empty()        { dst_ip       = val; } }
@@ -1500,8 +1638,18 @@ fn transform(
                 "process_id"      => { if process_id == 0 { process_id = val.parse().unwrap_or(0); } }
                 "rule_name"       => { if rule_name.is_empty()     { rule_name    = val; } }
                 "category"        => { if category.is_empty()      { category     = val; } }
-                "action"          => { if action.is_empty()        { action       = val; } }
-                "status"          => { if status.is_empty()        { status       = val; } }
+                "action"          => { if action.is_empty()        { action          = val; } }
+                "status"          => { if status.is_empty()        { status          = val; } }
+                "nat_src_ip"      => { if nat_src_ip.is_empty()    { nat_src_ip      = val; } }
+                "nat_dst_ip"      => { if nat_dst_ip.is_empty()    { nat_dst_ip      = val; } }
+                "nat_src_port"    => { if nat_src_port == 0 { nat_src_port = val.parse().unwrap_or(0); } }
+                "nat_dst_port"    => { if nat_dst_port == 0 { nat_dst_port = val.parse().unwrap_or(0); } }
+                "dst_hostname"    => { if dst_hostname.is_empty()  { dst_hostname    = val; } }
+                "interface_in"    => { if interface_in.is_empty()  { interface_in    = val; } }
+                "interface_out"   => { if interface_out.is_empty() { interface_out   = val; } }
+                "bytes_in"        => { if bytes_in == 0 { bytes_in  = val.parse().unwrap_or(0); } }
+                "bytes_out"       => { if bytes_out == 0 { bytes_out = val.parse().unwrap_or(0); } }
+                "network_protocol" => { if network_protocol.is_empty() { network_protocol = val; } }
                 // Unknown target → goes into extensions JSON blob
                 other             => { extensions.insert(other.to_string(), Value::String(val)); }
             }
@@ -2460,6 +2608,20 @@ mod tests {
         assert_eq!(get_data_field(&v, "audit.command"), "ls");
     }
     #[test]
+    fn get_data_field_number_and_bool() {
+        // JSON decoder produces numbers (not quoted strings) — must convert cleanly
+        let v = serde_json::json!({"port": 8443, "retries": 3, "tls": true});
+        assert_eq!(get_data_field(&v, "port"),    "8443");
+        assert_eq!(get_data_field(&v, "retries"), "3");
+        assert_eq!(get_data_field(&v, "tls"),     "true");
+    }
+    #[test]
+    fn get_data_field_nested_number() {
+        // Nested JSON decoder output with numeric leaf
+        let v = serde_json::json!({"conn": {"src_port": 12345}});
+        assert_eq!(get_data_field(&v, "conn.src_port"), "12345");
+    }
+    #[test]
     fn first_port_string_and_number() {
         let v = serde_json::json!({"s":"8080","n":443,"zero":"0"});
         assert_eq!(first_port(&v, &["s"]),    8080u16);
@@ -2713,6 +2875,214 @@ mod tests {
         let ext: Value = serde_json::from_str(&rec.extensions).unwrap();
         assert_eq!(ext["threat_score"].as_str(), Some("99"));
     }
+    #[test]
+    fn transform_custom_nat_and_network_fields() {
+        let raw = r#"{
+            "agent":{"id":"009","name":"nathost","ip":""},
+            "rule": {"id":"1","description":"t","level":3},
+            "data": {
+                "vendor.nat_src":  "10.1.1.1",
+                "vendor.nat_dst":  "10.2.2.2",
+                "vendor.nsp":      "40000",
+                "vendor.ndp":      "443",
+                "vendor.iface_in": "eth0",
+                "vendor.iface_out":"eth1",
+                "vendor.bytes_in": "1024",
+                "vendor.bytes_out":"2048",
+                "vendor.proto":    "udp",
+                "vendor.dst_host": "internal.corp"
+            }
+        }"#;
+        let mut cm = no_custom();
+        cm.field_map.insert("vendor.nat_src".into(),  "nat_src_ip".into());
+        cm.field_map.insert("vendor.nat_dst".into(),  "nat_dst_ip".into());
+        cm.field_map.insert("vendor.nsp".into(),      "nat_src_port".into());
+        cm.field_map.insert("vendor.ndp".into(),      "nat_dst_port".into());
+        cm.field_map.insert("vendor.iface_in".into(), "interface_in".into());
+        cm.field_map.insert("vendor.iface_out".into(),"interface_out".into());
+        cm.field_map.insert("vendor.bytes_in".into(), "bytes_in".into());
+        cm.field_map.insert("vendor.bytes_out".into(),"bytes_out".into());
+        cm.field_map.insert("vendor.proto".into(),    "network_protocol".into());
+        cm.field_map.insert("vendor.dst_host".into(), "dst_hostname".into());
+        let (_, rec) = transform(raw, "db", &[], &cm).unwrap();
+        assert_eq!(rec.nat_src_ip,       "10.1.1.1",       "nat_src_ip");
+        assert_eq!(rec.nat_dst_ip,       "10.2.2.2",       "nat_dst_ip");
+        assert_eq!(rec.nat_src_port,     40000u16,          "nat_src_port");
+        assert_eq!(rec.nat_dst_port,     443u16,            "nat_dst_port");
+        assert_eq!(rec.interface_in,     "eth0",            "interface_in");
+        assert_eq!(rec.interface_out,    "eth1",            "interface_out");
+        assert_eq!(rec.bytes_in,         1024u64,           "bytes_in");
+        assert_eq!(rec.bytes_out,        2048u64,           "bytes_out");
+        assert_eq!(rec.network_protocol, "udp",             "network_protocol");
+        assert_eq!(rec.dst_hostname,     "internal.corp",   "dst_hostname");
+        // extensions should be empty — all targets were known
+        let ext: Value = serde_json::from_str(&rec.extensions).unwrap();
+        assert!(ext.as_object().unwrap().is_empty(), "extensions should be empty");
+    }
+    #[test]
+    fn transform_custom_nat_wont_override_existing() {
+        // If the built-in extraction already found a value, custom mapping must not clobber it.
+        // "protocol" IS in the PROTOCOL search list, so built-in picks it up as "tcp".
+        let raw = r#"{
+            "agent":{"id":"010","name":"nathost2","ip":""},
+            "rule": {"id":"1","description":"t","level":3},
+            "data": {
+                "protocol": "tcp",
+                "vendor.proto": "udp"
+            }
+        }"#;
+        let mut cm = no_custom();
+        cm.field_map.insert("vendor.proto".into(), "network_protocol".into());
+        let (_, rec) = transform(raw, "db", &[], &cm).unwrap();
+        assert_eq!(rec.network_protocol, "tcp", "built-in should win, not custom");
+    }
+    #[test]
+    fn transform_json_decoder_numeric_fields() {
+        // Wazuh JSON decoder emits numbers (not quoted strings) for ports, bytes, etc.
+        // Custom mapping MUST convert them to the right typed column — this was broken
+        // before the get_data_field fix (numbers returned "" and were silently skipped).
+        let raw = r#"{
+            "agent":  {"id":"020","name":"myapp-json","ip":"10.0.0.20"},
+            "rule":   {"id":"5001","description":"myapp event","level":4},
+            "decoder":{"name":"json"},
+            "data": {
+                "client_ip":   "172.16.0.5",
+                "server_ip":   "10.0.1.1",
+                "client_port": 54321,
+                "server_port": 443,
+                "bytes_recv":  10240,
+                "bytes_sent":  2048,
+                "username":    "alice",
+                "risk":        99
+            }
+        }"#;
+        let mut cm = no_custom();
+        cm.field_map.insert("client_ip".into(),   "src_ip".into());
+        cm.field_map.insert("server_ip".into(),   "dst_ip".into());
+        cm.field_map.insert("client_port".into(), "src_port".into());
+        cm.field_map.insert("server_port".into(), "dst_port".into());
+        cm.field_map.insert("bytes_recv".into(),  "bytes_in".into());
+        cm.field_map.insert("bytes_sent".into(),  "bytes_out".into());
+        cm.field_map.insert("username".into(),    "actor_user".into());
+        cm.field_map.insert("risk".into(),        "risk_score".into()); // → extensions
+        let (_, rec) = transform(raw, "db", &[], &cm).unwrap();
+        assert_eq!(rec.src_ip,    "172.16.0.5", "src_ip from JSON number decoder");
+        assert_eq!(rec.dst_ip,    "10.0.1.1",   "dst_ip");
+        assert_eq!(rec.src_port,  54321u16,      "src_port from JSON number");
+        assert_eq!(rec.dst_port,  443u16,        "dst_port from JSON number");
+        assert_eq!(rec.bytes_in,  10240u64,      "bytes_in from JSON number");
+        assert_eq!(rec.bytes_out, 2048u64,       "bytes_out from JSON number");
+        assert_eq!(rec.actor_user,"alice",        "actor_user");
+        let ext: Value = serde_json::from_str(&rec.extensions).unwrap();
+        assert_eq!(ext["risk_score"].as_str(), Some("99"), "numeric → extensions");
+    }
+    #[test]
+    fn transform_json_decoder_nested_object() {
+        // Wazuh JSON decoder preserves nested JSON structure.
+        // field_mappings.toml uses "parent.child" dot-path notation to reach nested fields.
+        let raw = r#"{
+            "agent":  {"id":"021","name":"myapp-nested","ip":""},
+            "rule":   {"id":"5002","description":"nested test","level":3},
+            "decoder":{"name":"json"},
+            "data": {
+                "connection": {
+                    "src":  "192.0.2.10",
+                    "dst":  "198.51.100.1",
+                    "port": 8443
+                },
+                "auth": {
+                    "user":   "bob",
+                    "domain": "CORP"
+                },
+                "threat": {
+                    "score": 75,
+                    "name":  "BruteForce"
+                }
+            }
+        }"#;
+        let mut cm = no_custom();
+        cm.field_map.insert("connection.src".into(),   "src_ip".into());
+        cm.field_map.insert("connection.dst".into(),   "dst_ip".into());
+        cm.field_map.insert("connection.port".into(),  "dst_port".into());
+        cm.field_map.insert("auth.user".into(),        "actor_user".into());
+        cm.field_map.insert("auth.domain".into(),      "domain".into());
+        cm.field_map.insert("threat.score".into(),     "threat_score".into()); // → extensions
+        cm.field_map.insert("threat.name".into(),      "rule_name".into());
+        let (_, rec) = transform(raw, "db", &[], &cm).unwrap();
+        assert_eq!(rec.src_ip,    "192.0.2.10",   "nested src_ip");
+        assert_eq!(rec.dst_ip,    "198.51.100.1", "nested dst_ip");
+        assert_eq!(rec.dst_port,  8443u16,         "nested numeric port");
+        assert_eq!(rec.actor_user,"bob",            "nested actor_user");
+        assert_eq!(rec.domain,    "CORP",           "nested domain");
+        assert_eq!(rec.rule_name, "BruteForce",     "nested rule_name");
+        let ext: Value = serde_json::from_str(&rec.extensions).unwrap();
+        assert_eq!(ext["threat_score"].as_str(), Some("75"), "nested number → extensions");
+    }
+    #[test]
+    fn custom_mappings_full_toml_roundtrip() {
+        // End-to-end: TOML file on disk → CustomMappings::load() → transform()
+        // This is the exact path a user's field_mappings.toml takes in production.
+        let toml_content = r#"
+[meta]
+ocsf_version = "1.7.0"
+
+[field_mappings]
+"myapp.client_addr"  = "src_ip"
+"myapp.server_addr"  = "dst_ip"
+"myapp.current_user" = "actor_user"
+"myapp.risk_score"   = "vendor_risk_score"
+"myapp.proto"        = "network_protocol"
+"myapp.nat_ip"       = "nat_src_ip"
+"myapp.iface"        = "interface_in"
+"myapp.brecv"        = "bytes_in"
+"myapp.bsent"        = "bytes_out"
+"myapp.dst_h"        = "dst_hostname"
+"#;
+        let tmp = std::env::temp_dir().join("test_field_mappings_roundtrip.toml");
+        std::fs::write(&tmp, toml_content).unwrap();
+        let cm = CustomMappings::load(&tmp).expect("TOML must parse");
+
+        // Verify load
+        assert_eq!(cm.ocsf_version, "1.7.0");
+        assert_eq!(cm.field_map.get("myapp.client_addr").map(String::as_str),  Some("src_ip"));
+        assert_eq!(cm.field_map.get("myapp.server_addr").map(String::as_str),  Some("dst_ip"));
+        assert_eq!(cm.field_map.get("myapp.current_user").map(String::as_str), Some("actor_user"));
+        assert_eq!(cm.field_map.get("myapp.risk_score").map(String::as_str),   Some("vendor_risk_score"));
+
+        // Verify transform picks up every mapped field
+        let raw = r#"{
+            "agent":{"id":"011","name":"myapp-server","ip":"10.0.0.1"},
+            "rule": {"id":"100","description":"myapp event","level":5},
+            "data": {
+                "myapp.client_addr":  "192.168.1.50",
+                "myapp.server_addr":  "10.0.0.5",
+                "myapp.current_user": "alice",
+                "myapp.risk_score":   "87",
+                "myapp.proto":        "udp",
+                "myapp.nat_ip":       "203.0.113.1",
+                "myapp.iface":        "eth0",
+                "myapp.brecv":        "1024",
+                "myapp.bsent":        "2048",
+                "myapp.dst_h":        "backend.corp"
+            }
+        }"#;
+        let (_, rec) = transform(raw, "db", &[], &cm).unwrap();
+        // Standard targets — typed columns populated
+        assert_eq!(rec.src_ip,           "192.168.1.50",  "src_ip");
+        assert_eq!(rec.dst_ip,           "10.0.0.5",      "dst_ip");
+        assert_eq!(rec.actor_user,       "alice",          "actor_user");
+        assert_eq!(rec.network_protocol, "udp",            "network_protocol");
+        assert_eq!(rec.nat_src_ip,       "203.0.113.1",   "nat_src_ip");
+        assert_eq!(rec.interface_in,     "eth0",           "interface_in");
+        assert_eq!(rec.bytes_in,         1024u64,          "bytes_in");
+        assert_eq!(rec.bytes_out,        2048u64,          "bytes_out");
+        assert_eq!(rec.dst_hostname,     "backend.corp",   "dst_hostname");
+        // Unknown target → extensions JSON
+        let ext: Value = serde_json::from_str(&rec.extensions).unwrap();
+        assert_eq!(ext["vendor_risk_score"].as_str(), Some("87"), "extension");
+
+        std::fs::remove_file(&tmp).ok();
+    }
 
     // ── Lossless: event_data + unmapped ───────────────────────────────────
 
@@ -2826,6 +3196,80 @@ mod tests {
         let c = classify_event(&["rootkit", "windows"], "rootcheck", "");
         assert_eq!(c.class_uid,  2004);
         assert_eq!(c.class_name, "Detection Finding");
+    }
+
+    // ── cloud source routing ─────────────────────────────────────────────
+
+    #[test]
+    fn classify_vpcflow_decoder_is_network_activity() {
+        let c = classify_event(&[], "aws-vpcflow", "");
+        assert_eq!(c.class_uid, 4001);
+        assert_eq!(c.class_name, "Network Activity");
+    }
+
+    #[test]
+    fn classify_vpcflow_hyphen_variant() {
+        let c = classify_event(&[], "vpc-flow-logs", "");
+        assert_eq!(c.class_uid, 4001);
+    }
+
+    #[test]
+    fn classify_guardduty_decoder_is_vulnerability_finding() {
+        let c = classify_event(&[], "aws-guardduty", "");
+        assert_eq!(c.class_uid, 2002);
+        assert_eq!(c.class_name, "Vulnerability Finding");
+    }
+
+    #[test]
+    fn classify_guardduty_group_is_vulnerability_finding() {
+        let c = classify_event(&["amazon-guardduty"], "json", "");
+        assert_eq!(c.class_uid, 2002);
+    }
+
+    #[test]
+    fn classify_okta_decoder_is_authentication() {
+        let c = classify_event(&[], "okta", "");
+        assert_eq!(c.class_uid, 3002);
+        assert_eq!(c.class_name, "Authentication");
+    }
+
+    #[test]
+    fn classify_okta_group_is_authentication() {
+        let c = classify_event(&["okta"], "json", "");
+        assert_eq!(c.class_uid, 3002);
+    }
+
+    #[test]
+    fn classify_azure_ad_decoder_is_authentication() {
+        let c = classify_event(&[], "azure-ad", "");
+        assert_eq!(c.class_uid, 3002);
+        assert_eq!(c.class_name, "Authentication");
+    }
+
+    #[test]
+    fn classify_azure_ad_underscore_is_authentication() {
+        let c = classify_event(&[], "azure_ad", "");
+        assert_eq!(c.class_uid, 3002);
+    }
+
+    #[test]
+    fn classify_zeek_decoder_is_network_activity() {
+        let c = classify_event(&[], "zeek", "");
+        assert_eq!(c.class_uid, 4001);
+        assert_eq!(c.class_name, "Network Activity");
+    }
+
+    #[test]
+    fn classify_bro_group_is_network_activity() {
+        let c = classify_event(&["bro"], "bro-ids", "");
+        assert_eq!(c.class_uid, 4001);
+    }
+
+    #[test]
+    fn classify_cloudtrail_iam_is_authentication() {
+        let c = classify_event(&["aws_iam"], "aws-cloudtrail", "");
+        assert_eq!(c.class_uid, 3002);
+        assert_eq!(c.class_name, "Authentication");
     }
 
     // ── class_uid in transform round-trips ───────────────────────────────
@@ -3044,5 +3488,164 @@ mod tests {
         // Literal dotted key for byte counter
         let flat = serde_json::json!({"rcvdbyte": "2048"});
         assert_eq!(first_u64(&flat, &["rcvdbyte"]), 2048u64);
+    }
+
+    // ── Cloud / JSON-decoder source integration tests ────────────────────
+
+    /// AWS VPC Flow Log — JSON decoder emits flat numeric fields.
+    /// srcAddr/dstAddr → src_ip/dst_ip ; srcPort/dstPort (numbers) → src_port/dst_port.
+    #[test]
+    fn transform_vpcflow_fields() {
+        let raw = r#"{
+            "@timestamp":"2024-05-01T10:00:00Z",
+            "agent":{"id":"010","name":"aws-agent","ip":""},
+            "rule":{"id":"87001","description":"VPC Flow","level":3,"groups":["amazon-vpcflow"]},
+            "manager":{"name":"mgr"},
+            "decoder":{"name":"aws-vpcflow"},
+            "location":"aws-vpcflow",
+            "data":{
+                "srcAddr":"10.1.2.3",
+                "dstAddr":"10.4.5.6",
+                "srcPort":54321,
+                "dstPort":443,
+                "protocol":"6",
+                "bytes":2048,
+                "packets":12,
+                "interfaceId":"eni-abc123",
+                "action":"ACCEPT"
+            }
+        }"#;
+        let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
+        assert_eq!(rec.class_uid, 4001, "VPC Flow must be Network Activity");
+        assert_eq!(rec.src_ip,   "10.1.2.3");
+        assert_eq!(rec.dst_ip,   "10.4.5.6");
+        assert_eq!(rec.src_port, 54321u16);
+        assert_eq!(rec.dst_port, 443u16);
+        assert_eq!(rec.bytes_in, 2048u64);
+        assert_eq!(rec.action,   "ACCEPT");
+    }
+
+    /// AWS GuardDuty finding — deeply nested JSON path for the attacker IP.
+    #[test]
+    fn transform_guardduty_nested_ip() {
+        let raw = r#"{
+            "@timestamp":"2024-05-02T11:00:00Z",
+            "agent":{"id":"011","name":"aws-agent","ip":""},
+            "rule":{"id":"87100","description":"GuardDuty","level":10,"groups":["amazon-guardduty"]},
+            "manager":{"name":"mgr"},
+            "decoder":{"name":"aws-guardduty"},
+            "location":"aws-guardduty",
+            "data":{
+                "aws":{
+                    "service":{
+                        "action":{
+                            "networkConnectionAction":{
+                                "remoteIpDetails":{"ipAddressV4":"198.51.100.7"},
+                                "remotePortDetails":{"port":4444},
+                                "localIpDetails":{"ipAddressV4":"172.16.0.5"},
+                                "localPortDetails":{"port":443}
+                            }
+                        }
+                    },
+                    "title":"UnauthorizedAccess:EC2/SSHBruteForce"
+                }
+            }
+        }"#;
+        let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
+        assert_eq!(rec.class_uid, 2002, "GuardDuty must be Vulnerability Finding");
+        assert_eq!(rec.src_ip,   "198.51.100.7");
+        assert_eq!(rec.dst_ip,   "172.16.0.5");
+        assert_eq!(rec.src_port, 4444u16);
+        assert_eq!(rec.dst_port, 443u16);
+    }
+
+    /// Okta event — JSON decoder; actor email → actor_user, client IP → src_ip, outcome → status.
+    #[test]
+    fn transform_okta_auth_event() {
+        let raw = r#"{
+            "@timestamp":"2024-05-03T09:00:00Z",
+            "agent":{"id":"012","name":"okta-agent","ip":""},
+            "rule":{"id":"92000","description":"Okta login","level":5,"groups":["okta"]},
+            "manager":{"name":"mgr"},
+            "decoder":{"name":"okta"},
+            "location":"okta",
+            "data":{
+                "okta":{
+                    "actor":{
+                        "alternateId":"alice@example.com",
+                        "displayName":"Alice"
+                    },
+                    "client":{"ipAddress":"203.0.113.42"},
+                    "outcome":{"result":"SUCCESS"},
+                    "displayMessage":"User login to Okta",
+                    "eventType":"user.session.start"
+                }
+            }
+        }"#;
+        let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
+        assert_eq!(rec.class_uid,   3002, "Okta must be Authentication");
+        assert_eq!(rec.src_ip,      "203.0.113.42");
+        assert_eq!(rec.actor_user,  "alice@example.com");
+        assert_eq!(rec.status,      "SUCCESS");
+        assert_eq!(rec.action,      "User login to Okta");
+    }
+
+    /// Azure AD sign-in — callerIpAddress → src_ip, operationName → action, resultType → status.
+    #[test]
+    fn transform_azure_ad_signin() {
+        let raw = r#"{
+            "@timestamp":"2024-05-04T08:00:00Z",
+            "agent":{"id":"013","name":"azure-agent","ip":""},
+            "rule":{"id":"93000","description":"Azure AD","level":5,"groups":["azure-ad"]},
+            "manager":{"name":"mgr"},
+            "decoder":{"name":"azure-ad"},
+            "location":"azure-ad",
+            "data":{
+                "azure":{
+                    "callerIpAddress":"203.0.113.99",
+                    "operationName":"Sign-in activity",
+                    "resultType":"0",
+                    "properties":{
+                        "userPrincipalName":"bob@corp.onmicrosoft.com"
+                    }
+                }
+            }
+        }"#;
+        let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
+        assert_eq!(rec.class_uid,  3002, "Azure AD must be Authentication");
+        assert_eq!(rec.src_ip,     "203.0.113.99");
+        assert_eq!(rec.actor_user, "bob@corp.onmicrosoft.com");
+        assert_eq!(rec.action,     "Sign-in activity");
+        assert_eq!(rec.status,     "0");
+    }
+
+    /// Zeek conn.log — id.orig_h/resp_h → src_ip/dst_ip ; id.orig_p/resp_p → src_port/dst_port.
+    #[test]
+    fn transform_zeek_conn_log() {
+        let raw = r#"{
+            "@timestamp":"2024-05-05T07:00:00Z",
+            "agent":{"id":"014","name":"zeek-node","ip":""},
+            "rule":{"id":"94000","description":"Zeek conn","level":3,"groups":["zeek"]},
+            "manager":{"name":"mgr"},
+            "decoder":{"name":"zeek"},
+            "location":"zeek",
+            "data":{
+                "zeek":{
+                    "_path":"conn",
+                    "id":{
+                        "orig_h":"192.168.1.10",
+                        "orig_p":52000,
+                        "resp_h":"93.184.216.34",
+                        "resp_p":80
+                    }
+                }
+            }
+        }"#;
+        let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
+        assert_eq!(rec.class_uid, 4001, "Zeek conn must be Network Activity");
+        assert_eq!(rec.src_ip,   "192.168.1.10");
+        assert_eq!(rec.dst_ip,   "93.184.216.34");
+        assert_eq!(rec.src_port, 52000u16);
+        assert_eq!(rec.dst_port, 80u16);
     }
 }
