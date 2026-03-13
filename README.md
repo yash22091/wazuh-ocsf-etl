@@ -519,9 +519,20 @@ Any unknown target name is stored in the `extensions` JSON column:
 Dot notation navigates JSON objects:
 
 ```toml
-"win.eventdata.ipAddress" = "src_ip"         # navigates win → eventdata → ipAddress
-"myapp.client_ip"         = "src_ip"         # literal key match (exact, no navigation)
+"myapp.network.client_ip"  = "src_ip"    # navigates myapp → network → client_ip
+"myapp.client_ip"          = "src_ip"    # literal key match (exact, no navigation)
 ```
+
+> **Do NOT add standard Wazuh module fields here.** The pipeline extracts these natively — zero TOML config needed:
+>
+> | Module | Fields extracted natively |
+> |---|---|
+> | **Vulnerability Detector** | `vulnerability.cve`, `vulnerability.cvss.cvss3.base_score`, `vulnerability.severity`, `vulnerability.reference`, `vulnerability.package.*` |
+> | **Windows Event Log** | `win.system.providerName`, `win.system.processID`, `win.system.channel`, `win.system.eventID`, `win.eventdata.processName`, `win.eventdata.subjectUserName`, `win.eventdata.targetUserName`, … |
+> | **dpkg / apt** | `data.package`, `data.dpkg_status`, `data.architecture` |
+> | **Process context** | `data.uid`, `data.tty`, `data.pwd` |
+>
+> Adding these paths to `field_mappings.toml` has no effect — the native extraction block runs first and takes precedence. Only add entries for your own custom decoders or vendor integrations.
 
 ### OCSF schema migration (column renames)
 
@@ -575,6 +586,51 @@ All vendor-specific field paths are built into the static lookup tables — no T
 
 > **Numeric fields are handled correctly.** When the JSON decoder emits ports or byte counts as numbers (e.g. `"srcPort": 45678`), the pipeline converts them to the appropriate typed column. This covers all VPC Flow and Zeek numeric fields.
 
+### Standard Wazuh module fields (natively extracted — zero config)
+
+Standard Wazuh modules produce structured fields that are extracted in code. No `field_mappings.toml` entries are needed or recognised for these paths.
+
+#### Vulnerability Detector (OCSF class 2002)
+
+| Wazuh alert field | OCSF column / extension | Notes |
+|---|---|---|
+| `vulnerability.cve` | **`cve_id`** (`LowCardinality(String)`) | CVE identifier — e.g. `"CVE-2025-61984"` |
+| `vulnerability.cvss.cvss3.base_score` | **`cvss_score`** (`Float32`) | CVSS v3 base score 0.0–10.0 |
+| `vulnerability.severity` | **`severity` / `severity_id`** | Scanner label overrides rule-level mapping (Low/Medium/High/Critical → 2/3/4/5) |
+| `vulnerability.reference` | **`url`** | Advisory / patch URL |
+| `vulnerability.package.name` | **`app_name`** | Affected package |
+| `vulnerability.status` | **`status`** | e.g. `"Active"`, `"Obsolete"` |
+
+#### Windows Event Log (OCSF class auto-detected)
+
+| Wazuh alert field | OCSF column / extension | Notes |
+|---|---|---|
+| `win.system.providerName` | **`app_name`** | e.g. `"Microsoft-Windows-Security-Auditing"` |
+| `win.system.processID` | **`process_id`** | Event-generating process PID |
+| `win.system.eventID` | **`extensions.win_event_id`** | Windows Event ID — e.g. `"4624"` |
+| `win.system.channel` | **`extensions.win_channel`** | e.g. `"Security"`, `"Application"` |
+| `win.eventdata.processName` | **`process_name`** | |
+| `win.eventdata.subjectUserName` | **`actor_user`** | Falls back to `subjectUserSid` |
+| `win.eventdata.targetUserName` | **`target_user`** | Falls back to `targetUserSid` |
+| `win.eventdata.logonType` | **`extensions.win_logon_type`** | e.g. `"3"` (Network) |
+
+#### dpkg / apt (package management)
+
+| Wazuh alert field | OCSF column / extension | Notes |
+|---|---|---|
+| `data.package` | **`app_name`** | Package being installed/removed |
+| `data.dpkg_status` | **`status`** | e.g. `"installed"`, `"removed"` |
+| `data.version` | **`extensions.package_version`** | |
+| `data.architecture` | **`extensions.package_arch`** | |
+
+#### Process context (sudo, audit)
+
+| Wazuh alert field | OCSF column / extension | Notes |
+|---|---|---|
+| `data.uid` | **`extensions.actor_uid`** | Numeric UID |
+| `data.tty` | **`extensions.tty`** | Terminal device |
+| `data.pwd` | **`extensions.working_dir`** | Current working directory |
+
 ### For fields not yet covered
 
 Any field the pipeline sees but doesn't recognise is automatically recorded in `state/unmapped_fields.json`. See [§11](#11-unmapped-field-discovery).
@@ -584,6 +640,8 @@ Any field the pipeline sees but doesn't recognise is automatically recorded in `
 ## 11. Unmapped-field discovery
 
 Every `data.*` field path present in a live alert that is **not** already covered by a built-in constant or a custom `field_mappings.toml` entry is recorded automatically. This gives operators a continuously-updated list of fields they can promote to typed OCSF columns.
+
+> **Standard Wazuh module fields are never reported here.** The 130+ paths from `vulnerability.*`, `win.system.*`, `win.eventdata.*`, dpkg fields, and process context (`uid`, `tty`, `pwd`) are all natively extracted and are excluded from the unmapped report. Only truly unrecognised custom decoder fields appear.
 
 ### The report file
 
@@ -935,6 +993,34 @@ Every Wazuh rule field is preserved in the OCSF schema. Here is the exact mappin
 | `rule.mitre.technique` | **`attack_technique`** | `String` | Technique name — e.g. `"Brute Force"`. |
 | `rule.mitre.id` | **`attack_id`** | `String` | Technique ID — e.g. `"T1110"`. |
 | `rule.mitre.tactic` | **`attack_tactic`** | `String` | Tactic name — e.g. `"Credential Access"`. |
+
+### Vulnerability Finding fields (class 2002)
+
+Populated automatically when `vulnerability-detector` fires. No config required.
+
+| Source field | ClickHouse column | Type | Description |
+|---|---|---|---|
+| `vulnerability.cve` | **`cve_id`** | `LowCardinality(String)` | CVE identifier — e.g. `"CVE-2025-61984"`. |
+| `vulnerability.cvss.cvss3.base_score` | **`cvss_score`** | `Float32` | CVSS v3 base score 0.0–10.0. |
+| `vulnerability.severity` (scanner label) | **`severity` / `severity_id`** | `String` / `UInt8` | Overrides the default rule-level mapping. Scanner labels Low/Medium/High/Critical map to severity_id 2/3/4/5. |
+| `vulnerability.reference` | **`url`** | `String` | Advisory or patch URL. |
+| `vulnerability.package.name` | **`app_name`** | `LowCardinality(String)` | Affected package name. |
+| `vulnerability.status` | **`status`** | `String` | e.g. `"Active"`, `"Obsolete"`. |
+
+### Extensions column
+
+Fields that don't map to a dedicated typed column are written to the `extensions` JSON column. Standard Wazuh module fields stored there:
+
+| Source field | `extensions` key | Notes |
+|---|---|---|
+| `win.system.eventID` | `win_event_id` | Windows Event ID |
+| `win.system.channel` | `win_channel` | e.g. `"Security"` |
+| `win.eventdata.logonType` | `win_logon_type` | e.g. `"3"` (Network) |
+| `data.version` (dpkg) | `package_version` | |
+| `data.architecture` (dpkg) | `package_arch` | |
+| `data.uid` | `actor_uid` | Numeric UID |
+| `data.tty` | `tty` | Terminal device |
+| `data.pwd` | `working_dir` | Working directory |
 
 ### Compliance tags
 
