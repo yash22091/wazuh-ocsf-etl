@@ -27,12 +27,14 @@ Wazuh manager
 7. [First-run behaviour (large existing files)](#7-first-run-behaviour-large-existing-files)
 8. [Peak EPS tuning](#8-peak-eps-tuning)
 9. [Custom field mappings](#9-custom-field-mappings)
-10. [Log rotation](#10-log-rotation)
-11. [Upgrading](#11-upgrading)
-12. [Troubleshooting](#12-troubleshooting)
-13. [OCSF class reference](#13-ocsf-class-reference)
-14. [Wazuh rule fields in ClickHouse](#14-wazuh-rule-fields-in-clickhouse)
-15. [Wazuh cluster deployment](#15-wazuh-cluster-deployment)
+10. [Cloud / JSON-decoder source auto-mapping](#10-cloud--json-decoder-source-auto-mapping)
+11. [Unmapped-field discovery](#11-unmapped-field-discovery)
+12. [Log rotation](#12-log-rotation)
+13. [Upgrading](#13-upgrading)
+14. [Troubleshooting](#14-troubleshooting)
+15. [OCSF class reference](#15-ocsf-class-reference)
+16. [Wazuh rule fields in ClickHouse](#16-wazuh-rule-fields-in-clickhouse)
+17. [Wazuh cluster deployment](#17-wazuh-cluster-deployment)
 
 ---
 
@@ -128,6 +130,7 @@ $EDITOR .env
 | `CHANNEL_CAP` | `50000` | Internal async queue depth between reader and writer (~1 KB/slot, ≈50 MB) |
 | `SPECIAL_LOCATIONS` | *(empty)* | Comma-separated location names routed to shared tables |
 | `DATA_TTL_DAYS` | `90` | Delete rows older than N days (empty = keep forever) |
+| `UNMAPPED_FIELDS_FILE` | `state/unmapped_fields.json` | JSON report of `data.*` fields not yet mapped to OCSF columns — updated on every flush. See [§11](#11-unmapped-field-discovery). |
 | `RUST_LOG` | `info` | Log level: `error`, `warn`, `info`, `debug`, `trace` |
 
 ### Minimal `.env` for a standard deployment
@@ -457,7 +460,9 @@ Edit `/opt/wazuh-ocsf/config/field_mappings.toml`. Changes are picked up within 
 "myapp.threat_name"   = "rule_name"
 ```
 
-Standard target column names: `src_ip`, `dst_ip`, `src_port`, `dst_port`, `nat_src_ip`, `nat_dst_ip`, `nat_src_port`, `nat_dst_port`, `actor_user`, `target_user`, `domain`, `url`, `http_method`, `http_status`, `process_name`, `process_id`, `file_name`, `app_name`, `rule_name`, `category`, `action`, `status`, `interface_in`, `interface_out`, `src_hostname`, `dst_hostname`, `bytes_in`, `bytes_out`, `network_protocol`.
+Standard target column names: `src_ip`, `dst_ip`, `src_port`, `dst_port`, `nat_src_ip`, `nat_dst_ip`, `nat_src_port`, `nat_dst_port`, `actor_user`, `target_user`, `domain`, `url`, `http_method`, `http_status`, `process_name`, `process_id`, `file_name`, `app_name`, `rule_name`, `app_category`, `action`, `status`, `interface_in`, `interface_out`, `src_hostname`, `dst_hostname`, `bytes_in`, `bytes_out`, `network_protocol`.
+
+> **Note:** The column is named `app_category` (not `category`) to avoid confusion with OCSF's own event classification fields `category_uid` / `category_name`.
 
 Any unknown target name is stored in the `extensions` JSON column:
 
@@ -488,7 +493,113 @@ The binary will print the required `ALTER TABLE` statements at startup but will 
 
 ---
 
-## 10. Log rotation
+---
+
+## 10. Cloud / JSON-decoder source auto-mapping
+
+When Wazuh ingests AWS, Azure, Okta, Zeek, or other cloud/vendor sources via its JSON decoder, the decoded fields land under `data.*` with vendor-specific field names. **No manual configuration is needed** — the ETL handles these sources automatically in two ways.
+
+### Automatic OCSF class routing
+
+The decoder name and rule groups are checked to assign the correct OCSF class, overriding the generic rules:
+
+| Source | Decoder / group match | OCSF class_uid | OCSF class_name |
+|---|---|---|---|
+| AWS VPC Flow Logs | decoder `aws-vpcflow`, `vpc-flow*` | **4001** | Network Activity |
+| AWS GuardDuty | decoder `aws-guardduty` or group `amazon-guardduty` | **2002** | Vulnerability Finding |
+| Okta System Log | decoder `okta` or group `okta` | **3002** | Authentication |
+| Azure AD / Monitor | decoder `azure-ad`, `azure_ad` or group `azure-ad` | **3002** | Authentication |
+| OneLogin | decoder `onelogin` or group `onelogin` | **3002** | Authentication |
+| Zeek / Bro | decoder `zeek`, `bro-ids` or group `zeek`, `bro` | **4001** | Network Activity |
+| AWS CloudTrail (IAM) | decoder `cloudtrail` AND group `aws_iam` or `authentication` | **3002** | Authentication |
+
+### Automatic field extraction
+
+All vendor-specific field paths are built into the static lookup tables — no TOML config required:
+
+| OCSF column | Cloud field paths auto-resolved |
+|---|---|
+| `src_ip` | `srcAddr` (VPC Flow), `okta.client.ipAddress`, `azure.callerIpAddress`, `azure.properties.ipAddress`, `zeek.id.orig_h`, GuardDuty `remoteIpDetails.ipAddressV4` |
+| `dst_ip` | `dstAddr` (VPC Flow), `zeek.id.resp_h`, GuardDuty `localIpDetails.ipAddressV4` |
+| `src_port` | `srcPort` (VPC Flow, numeric), `zeek.id.orig_p`, GuardDuty `remotePortDetails.port` |
+| `dst_port` | `dstPort` (VPC Flow, numeric), `zeek.id.resp_p`, GuardDuty `localPortDetails.port` |
+| `actor_user` | `okta.actor.alternateId`, `okta.actor.displayName`, `azure.properties.userPrincipalName`, `aws.userIdentity.userName` |
+| `action` | `okta.displayMessage`, `okta.eventType`, `azure.operationName`, `aws.eventName` |
+| `status` | `okta.outcome.result` (SUCCESS/FAILURE/ALLOW/DENY), `azure.resultType`, `audit.res` |
+| `bytes_in` | `aws.bytes` (VPC Flow), `aws.additionalEventData.bytesTransferredIn` (CloudTrail S3) |
+| `interface_in` | `interfaceId` (VPC Flow ENI), `zeek._path` |
+| `app_name` | `aws.eventSource`, `azure.resourceType`, `okta.client.userAgent.browser` |
+
+> **Numeric fields are handled correctly.** When the JSON decoder emits ports or byte counts as numbers (e.g. `"srcPort": 45678`), the pipeline converts them to the appropriate typed column. This covers all VPC Flow and Zeek numeric fields.
+
+### For fields not yet covered
+
+Any field the pipeline sees but doesn't recognise is automatically recorded in `state/unmapped_fields.json`. See [§11](#11-unmapped-field-discovery).
+
+---
+
+## 11. Unmapped-field discovery
+
+Every `data.*` field path present in a live alert that is **not** already covered by a built-in constant or a custom `field_mappings.toml` entry is recorded automatically. This gives operators a continuously-updated list of fields they can promote to typed OCSF columns.
+
+### The report file
+
+After every successful ClickHouse flush, the pipeline writes `state/unmapped_fields.json` (configurable via `UNMAPPED_FIELDS_FILE`):
+
+```json
+{
+  "note": "Fields from data.* that are not yet mapped to an OCSF typed column. Add entries to config/field_mappings.toml to promote them.",
+  "valid_targets": ["src_ip", "dst_ip", "src_port", ...],
+  "fields": {
+    "edr.threat.name": {
+      "count": 1842,
+      "example": "Cobalt Strike Beacon",
+      "suggested_toml": "# \"edr.threat.name\" = \"src_ip\"  # TODO: choose a valid target column"
+    },
+    "pan.app_category": {
+      "count": 307,
+      "example": "business-systems",
+      "suggested_toml": "# \"pan.app_category\" = \"src_ip\"  # TODO: choose a valid target column"
+    }
+  }
+}
+```
+
+Fields are sorted by **count descending** — the most frequently occurring unmapped fields appear first.
+
+### Startup log
+
+On startup, if a prior report exists, the top 10 unmapped fields are printed to the log — no file inspection needed:
+
+```
+INFO   top unmapped fields (add to field_mappings.toml): ["edr.threat.name", "pan.app_category", ...]
+```
+
+### Acting on the report
+
+1. Open `state/unmapped_fields.json`
+2. For each field you want to promote, copy its `suggested_toml` line into `config/field_mappings.toml`
+3. Replace `src_ip` with the correct target column from the `valid_targets` list
+4. Save — hot-reload picks it up within 10 seconds
+5. That field will stop appearing in future reports and will be written to a typed ClickHouse column
+
+```toml
+[field_mappings]
+# From the unmapped report:
+"edr.threat.name"          = "rule_name"
+"edr.network.remote_ip"    = "dst_ip"
+"edr.network.remote_port"  = "dst_port"
+"pan.app_category"         = "app_category"
+"pan.bytes_total"          = "bytes_in"
+"myapp.user_email"         = "actor_user"
+"myapp.risk_score"         = "vendor_risk_score"   # → extensions{}
+```
+
+> Fields mapped to an **unknown target** (like `vendor_risk_score`) are written to the `extensions` JSON column rather than a typed column — useful for vendor-specific data you want to preserve but don't need to index.
+
+---
+
+## 12. Log rotation
 
 Wazuh rotates `alerts.json` daily by default (renaming it to `alerts.json-YYYYMMDD.gz` and creating a new empty file). This pipeline handles rotation correctly in all cases:
 
@@ -514,7 +625,7 @@ systemctl stop wazuh-ocsf-etl   # sends SIGTERM → graceful drain
 
 ---
 
-## 11. Upgrading
+## 13. Upgrading
 
 ```bash
 # 1. Build new binary
@@ -538,7 +649,7 @@ The state file is not affected — the pipeline resumes from the last saved offs
 
 ---
 
-## 12. Troubleshooting
+## 14. Troubleshooting
 
 ### Service fails to start
 
@@ -714,27 +825,52 @@ systemctl start wazuh-ocsf-etl
 
 ---
 
-## 13. OCSF class reference
+## 15. OCSF class reference
 
 Every alert is automatically classified. The class is written to the `class_uid` and `class_name` columns in ClickHouse.
 
-| `class_uid` | `class_name` | Triggered by |
+| `class_uid` | `class_name` | `category_uid` | Triggered by |
+|---|---|---|---|
+| 1001 | File System Activity | 1 | `syscheck`, `sysmon_file` rule groups |
+| 1006 | Process Activity | 1 | `sysmon_process`, `execve`, `audit_command` groups |
+| 2002 | Vulnerability Finding | 2 | `vulnerability-detector` group; decoder `aws-guardduty` / group `amazon-guardduty` |
+| 2003 | Compliance Finding | 2 | `sca`, `oscap`, `ciscat` groups |
+| 2004 | Detection Finding | 2 | **Default** — all rules not matched above |
+| 3001 | Account Change | 3 | `adduser`, `userdel`, `usermod` groups |
+| 3002 | Authentication | 3 | `sshd`, `pam`, `sudo`, `authentication*` groups; decoder `okta`, `azure-ad`; CloudTrail + `aws_iam` group |
+| 4001 | Network Activity | 4 | `firewall`, `suricata`, `fortigate`, `snort`, `pfsense` decoders; decoder `aws-vpcflow`, `zeek`, `bro-ids` |
+| 4002 | HTTP Activity | 4 | `nginx`, `apache`, `iis` decoders; `web*` groups |
+| 4003 | DNS Activity | 4 | `named`, `dns` decoders |
+| 4004 | DHCP Activity | 4 | `dhcpd` decoder; `dhcp` group |
+
+### `status_id` values per OCSF class
+
+OCSF 1.7.0 defines **different** `status_id` enums depending on the class profile:
+
+**Finding classes** (class_uid 2002, 2003, 2004 — Detection / Vulnerability / Compliance):
+
+| `status_id` | Meaning | When set |
 |---|---|---|
-| 1001 | File System Activity | `syscheck`, `sysmon_file` rule groups |
-| 1006 | Process Activity | `sysmon_process`, `execve`, `audit_command` groups |
-| 2002 | Vulnerability Finding | `vulnerability-detector` group |
-| 2003 | Compliance Finding | `sca`, `oscap`, `ciscat` groups |
-| 2004 | Detection Finding | **Default** — all rules not matched above |
-| 3001 | Account Change | `adduser`, `userdel`, `usermod` groups |
-| 3002 | Authentication | `sshd`, `pam`, `sudo`, `authentication*` groups |
-| 4001 | Network Activity | `firewall`, `suricata`, `fortigate`, `snort`, `pfsense` decoders |
-| 4002 | HTTP Activity | `nginx`, `apache`, `iis` decoders; `web*` groups |
-| 4003 | DNS Activity | `named`, `dns` decoders |
-| 4004 | DHCP Activity | `dhcpd` decoder; `dhcp` group |
+| 0 | Unknown | status field empty |
+| 1 | New | **Default for all Wazuh findings** |
+| 2 | In Progress | status contains `in_progress`, `investigating` |
+| 3 | Suppressed | status contains `suppressed`, `benign`, `false_positive` |
+| 4 | Resolved | status contains `resolved`, `closed`, `remediated` |
+| 5 | Archived | status = `archived` |
+| 6 | Deleted | status = `deleted` |
+
+**Operational classes** (all other class_uids — Auth, Network, File, Process, HTTP, DNS, DHCP):
+
+| `status_id` | Meaning | When set |
+|---|---|---|
+| 0 | Unknown | status field empty |
+| 1 | Success | status = `success`, `allow`, `pass`, `passed` |
+| 2 | Failure | status = `failure`, `fail`, `deny`, `block`, `drop`, `reject` |
+| 99 | Other | any other non-empty value |
 
 ---
 
-## 14. Wazuh rule fields in ClickHouse
+## 16. Wazuh rule fields in ClickHouse
 
 Every Wazuh rule field is preserved in the OCSF schema. Here is the exact mapping so SOC analysts know which column to query:
 
@@ -871,7 +1007,7 @@ LIMIT 20;
 
 ---
 
-## 15. Wazuh cluster deployment
+## 17. Wazuh cluster deployment
 
 ### How a Wazuh cluster works
 
