@@ -53,7 +53,7 @@ OCSF (Open Cybersecurity Schema Framework) is backed by AWS, Splunk, IBM, CrowdS
 
 ### Competitive landscape (as of March 2026)
 
-A full GitHub search across `wazuh+ocsf+clickhouse`, `siem+ocsf+clickhouse`, and `security+events+ocsf+rust` returns **zero other public repositories** combining all three. The only existing Wazuh+OCSF project ([anubhavg-icpl/ocsf-compliant-wazuh](https://github.com/anubhavg-icpl/ocsf-compliant-wazuh), Python, 0 stars) is a proof-of-concept with no storage backend, no state management, and OCSF 1.0 (not 1.7.0).
+A full GitHub search across `wazuh+ocsf+clickhouse`, `siem+ocsf+clickhouse`, and `security+events+ocsf+rust` returns **zero other public repositories** combining all three.
 
 ---
 
