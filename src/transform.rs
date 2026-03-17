@@ -333,6 +333,28 @@ pub(crate) fn transform(
 
     let ocsf_cls = classify_event(&rule_groups, &decoder_name, location);
 
+    // ── Backfill status string from rule groups (auth/network events) ───────
+    // Wazuh encodes success/failure in rule.groups, not in data.status, so we
+    // must check groups before computing status_id.
+    if status.is_empty() {
+        if rule_groups.iter().any(|&g| matches!(g,
+            "authentication_success" | "win_authentication_success" |
+            "pam_success" | "sudo"
+        )) {
+            status = "Success".to_string();
+        } else if rule_groups.iter().any(|&g| matches!(g,
+            "authentication_failed" | "authentication_failure" |
+            "win_authentication_failed" | "pam_failure" |
+            "invalid_login" | "multiple_authentication_failures"
+        )) {
+            status = "Failure".to_string();
+        }
+    }
+    // For firewall/network events: derive status string from action when absent
+    if status.is_empty() && ocsf_cls.class_uid == 4001 && !action.is_empty() {
+        status = action.clone();
+    }
+
     // ── Override severity for vulnerability findings (class 2002) ─────────
     // Scanner label (Low/Medium/High/Critical) is more accurate than rule level.
     if ocsf_cls.class_uid == 2002 && !vuln_sev.is_empty() {
@@ -455,8 +477,17 @@ pub(crate) fn transform(
             "deleted"                                       => 6,
             _                                               => 1,
         },
+        // Authentication (3002): check backfilled status string (set above from rule.groups)
+        3002 => match status.to_ascii_lowercase().as_str() {
+            "success" | "allow" | "allowed" | "pass" | "passed" | "accepted" => 1,
+            "failure" | "fail" | "failed" | "deny" | "denied"
+                | "block" | "blocked" | "drop" | "dropped"
+                | "reject" | "rejected" | "error" => 2,
+            "" => 0,
+            _  => 99,
+        },
         _ => match status.to_ascii_lowercase().as_str() {
-            "success" | "allow" | "allowed" | "pass" | "passed" => 1,
+            "success" | "allow" | "allowed" | "pass" | "passed" | "accepted" => 1,
             "failure" | "fail" | "failed" | "deny" | "denied"
                 | "block" | "blocked" | "drop" | "dropped"
                 | "reject" | "rejected" => 2,
