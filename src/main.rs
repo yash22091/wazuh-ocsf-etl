@@ -2159,4 +2159,151 @@ ocsf_version = "1.7.0"
         assert_eq!(rec.activity_id,   1,        "DHCPACK → Assign(1)");
         assert_eq!(rec.activity_name, "Assign");
     }
+
+    // ── SCA (Security Configuration Assessment) field mapping ────────────
+
+    #[test]
+    fn transform_sca_maps_typed_columns() {
+        let raw = r#"{
+            "@timestamp":"2026-03-17T08:00:00Z",
+            "agent":  {"id":"010","name":"win-desktop-01","ip":"10.0.1.10"},
+            "rule":   {"id":"19009","description":"SCA check result","level":7,
+                       "groups":["sca"]},
+            "manager":{"name":"wazuh-mgr"},
+            "decoder":{"name":"sca"},
+            "data":{
+                "sca":{
+                    "type":       "check",
+                    "scan_id":    "1234567890",
+                    "policy":     "CIS Microsoft Windows 10 Enterprise Benchmark v1.12.0",
+                    "policy_id":  "cis_win10_enterprise",
+                    "check":{
+                        "id":     "15542",
+                        "title":  "Ensure Network access: Allow anonymous SID/Name translation is Disabled",
+                        "result": "failed",
+                        "compliance":{"cis":"2.3.10.1","cis_csc":"8.5"},
+                        "description": "Prevents anonymous SID lookups.",
+                        "rationale":   "Reduces attack surface.",
+                        "remediation": "Set GPO to Disabled."
+                    }
+                }
+            }
+        }"#;
+        let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
+
+        // Typed OCSF columns
+        assert_eq!(rec.class_uid,      2003, "SCA → Compliance Finding (2003)");
+        assert_eq!(rec.finding_title,  "Ensure Network access: Allow anonymous SID/Name translation is Disabled",
+                   "finding_title should come from sca.check.title, not rule description");
+        assert_eq!(rec.finding_uid,    "19009",
+                   "finding_uid must always be the Wazuh rule_id — never overridden");
+        assert_eq!(rec.status,         "failed",  "status should be sca.check.result");
+        assert_eq!(rec.app_name,       "CIS Microsoft Windows 10 Enterprise Benchmark v1.12.0",
+                   "app_name should be sca.policy");
+
+        // Extensions
+        let ext: serde_json::Value = serde_json::from_str(&rec.extensions).unwrap();
+        assert_eq!(ext["sca_scan_id"],      "1234567890");
+        assert_eq!(ext["sca_check_id"],     "15542",   "sca.check.id goes to extensions, not finding_uid");
+        assert_eq!(ext["sca_cis_control"],  "2.3.10.1");
+        assert_eq!(ext["sca_cis_csc"],      "8.5");
+        assert!(ext["sca_description"].as_str().unwrap().contains("anonymous"));
+        assert!(ext["sca_rationale"].as_str().unwrap().contains("attack surface"));
+        assert!(ext["sca_remediation"].as_str().unwrap().contains("GPO"));
+    }
+
+    #[test]
+    fn transform_sca_pass_status() {
+        let raw = r#"{
+            "@timestamp":"2026-03-17T08:01:00Z",
+            "agent":  {"id":"010","name":"win-desktop-01","ip":"10.0.1.10"},
+            "rule":   {"id":"19101","description":"SCA check passed","level":3,
+                       "groups":["sca"]},
+            "decoder":{"name":"sca"},
+            "data":{"sca":{"check":{"id":"15543","title":"Audit Policy Check","result":"passed"}}}
+        }"#;
+        let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
+        assert_eq!(rec.status,      "passed");
+        assert_eq!(rec.finding_uid, "19101", "finding_uid must always be Wazuh rule_id");
+        let ext: serde_json::Value = serde_json::from_str(&rec.extensions).unwrap();
+        assert_eq!(ext["sca_check_id"], "15543", "sca.check.id must be in extensions");
+    }
+
+    // ── Linux audit / SELinux AVC field mapping ──────────────────────────
+
+    #[test]
+    fn transform_audit_avc_maps_file_name_and_audit_type() {
+        let raw = r#"{
+            "@timestamp":"2026-03-17T08:02:00Z",
+            "agent":  {"id":"005","name":"linux-srv","ip":"10.0.0.5"},
+            "rule":   {"id":"80791","description":"SELinux AVC denial","level":8,
+                       "groups":["audit"]},
+            "decoder":{"name":"auditd"},
+            "data":{
+                "audit":{
+                    "id":   "46712",
+                    "type": "AVC",
+                    "directory":{"name":"snap.yq.yq"}
+                }
+            }
+        }"#;
+        let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
+
+        // file_name from audit.directory.name
+        assert_eq!(rec.file_name,  "snap.yq.yq", "file_name must come from audit.directory.name");
+        // finding_uid is always the Wazuh rule_id — audit.id goes to extensions
+        assert_eq!(rec.finding_uid, "80791", "finding_uid must always be Wazuh rule_id");
+        // audit_type and audit_id in extensions
+        let ext: serde_json::Value = serde_json::from_str(&rec.extensions).unwrap();
+        assert_eq!(ext["audit_type"], "AVC");
+        assert_eq!(ext["audit_id"],   "46712", "audit.id must be in extensions");
+    }
+
+    // ── Windows SCM param1-7 and event binary in extensions ──────────────
+
+    #[test]
+    fn transform_win_eventdata_params_in_extensions() {
+        let raw = r#"{
+            "@timestamp":"2026-03-17T08:03:00Z",
+            "agent":  {"id":"007","name":"win-srv-02","ip":"10.0.2.7"},
+            "rule":   {"id":"7036","description":"Windows service state change","level":3,
+                       "groups":["windows"]},
+            "decoder":{"name":"windows_eventchannel"},
+            "data":{
+                "win":{
+                    "system":{"eventID":"7036","computer":"WIN-SRV-02"},
+                    "eventdata":{
+                        "param1": "Windows Update",
+                        "param2": "running",
+                        "param3": "auto start",
+                        "binary": "AABBCCDD"
+                    }
+                }
+            }
+        }"#;
+        let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
+        let ext: serde_json::Value = serde_json::from_str(&rec.extensions).unwrap();
+
+        assert_eq!(ext["win_param1"], "Windows Update", "param1 must be in extensions");
+        assert_eq!(ext["win_param2"], "running",        "param2 must be in extensions");
+        assert_eq!(ext["win_param3"], "auto start",     "param3 must be in extensions");
+        assert_eq!(ext["win_event_binary"], "AABBCCDD", "binary must be win_event_binary");
+        assert_eq!(ext["win_event_id"],     "7036",     "event ID still present");
+    }
+
+    #[test]
+    fn transform_win_params_not_present_if_empty() {
+        let raw = r#"{
+            "@timestamp":"2026-03-17T08:04:00Z",
+            "agent":  {"id":"007","name":"win-srv-02","ip":"10.0.2.7"},
+            "rule":   {"id":"4625","description":"Windows logon failure","level":5,
+                       "groups":["windows","authentication_failed"]},
+            "decoder":{"name":"windows_eventchannel"},
+            "data":{"win":{"system":{"eventID":"4625"},"eventdata":{"ipAddress":"1.2.3.4"}}}
+        }"#;
+        let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
+        let ext: serde_json::Value = serde_json::from_str(&rec.extensions).unwrap();
+        assert!(ext.get("win_param1").is_none(), "win_param1 must not appear when absent");
+        assert!(ext.get("win_event_binary").is_none(), "win_event_binary must not appear when absent");
+    }
 }

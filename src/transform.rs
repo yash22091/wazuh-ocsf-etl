@@ -103,9 +103,9 @@ pub(crate) fn transform(
     let rule_desc  = get(rule, "description");
     let rule_level = rule.get("level").and_then(Value::as_u64).unwrap_or(0);
     let rule_fired_times = rule.get("firedtimes").and_then(Value::as_u64).unwrap_or(0) as u32;
-    // Overridable by decoder-specific extraction below (e.g. sca.check.title)
+    // finding_title can be overridden by decoder-specific extraction (e.g. sca.check.title).
+    // finding_uid is ALWAYS rule_id — Wazuh rule ID must never be replaced.
     let mut finding_title_override = String::new();
-    let mut finding_uid_override   = String::new();
     let rule_groups: Vec<&str> = rule.get("groups")
         .and_then(Value::as_array)
         .map(|a| a.iter().filter_map(Value::as_str).collect())
@@ -255,11 +255,7 @@ pub(crate) fn transform(
             let v = jpath(&data_val, "sca.check.title");
             if !v.is_empty() { finding_title_override = v.to_string(); }
         }
-        // finding_uid: prefer the actual SCA check ID over the Wazuh rule ID
-        if finding_uid_override.is_empty() {
-            let v = jpath(&data_val, "sca.check.id");
-            if !v.is_empty() { finding_uid_override = v.to_string(); }
-        }
+        // sca.check.id goes into extensions — rule_id (finding_uid) is never replaced
         // status: sca.check.result → "pass" | "fail" | "not applicable"
         if status.is_empty() {
             let v = jpath(&data_val, "sca.check.result");
@@ -274,15 +270,11 @@ pub(crate) fn transform(
 
     // ── Linux audit / SELinux AVC events ─────────────────────────────────
     // audit.directory.name is the path being accessed (maps to file_name).
-    // audit.id is a unique audit serial number (maps to finding_uid fallback).
+    // audit.id goes into extensions — rule_id (finding_uid) is never replaced.
     {
         if file_name.is_empty() {
             let v = jpath(&data_val, "audit.directory.name");
             if !v.is_empty() { file_name = v.to_string(); }
-        }
-        if finding_uid_override.is_empty() {
-            let v = jpath(&data_val, "audit.id");
-            if !v.is_empty() { finding_uid_override = v.to_string(); }
         }
     }
 
@@ -303,6 +295,7 @@ pub(crate) fn transform(
     { let v = jpath(&data_val, "win.eventdata.binary"); if !v.is_empty() { extensions.insert("win_event_binary".into(), Value::String(v.to_string())); } }
     // SCA extended context (check details beyond the typed columns above)
     { let v = jpath(&data_val, "sca.scan_id");                if !v.is_empty() { extensions.insert("sca_scan_id".into(),         Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.check.id");               if !v.is_empty() { extensions.insert("sca_check_id".into(),        Value::String(v.to_string())); } }
     { let v = jpath(&data_val, "sca.check.compliance.cis");   if !v.is_empty() { extensions.insert("sca_cis_control".into(),     Value::String(v.to_string())); } }
     { let v = jpath(&data_val, "sca.check.compliance.cis_csc"); if !v.is_empty() { extensions.insert("sca_cis_csc".into(),       Value::String(v.to_string())); } }
     { let v = jpath(&data_val, "sca.check.description");      if !v.is_empty() { extensions.insert("sca_description".into(),    Value::String(v.to_string())); } }
@@ -311,6 +304,7 @@ pub(crate) fn transform(
     { let v = jpath(&data_val, "sca.check.reason");           if !v.is_empty() { extensions.insert("sca_reason".into(),         Value::String(v.to_string())); } }
     // Linux audit AVC context
     { let v = jpath(&data_val, "audit.type");                 if !v.is_empty() { extensions.insert("audit_type".into(),         Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "audit.id");                   if !v.is_empty() { extensions.insert("audit_id".into(),           Value::String(v.to_string())); } }
     // FIM / syscheck hash digests
     { let v = get_sc("md5_after");    if !v.is_empty() { extensions.insert("fim_md5".into(),    Value::String(v)); } }
     { let v = get_sc("sha1_after");   if !v.is_empty() { extensions.insert("fim_sha1".into(),   Value::String(v)); } }
@@ -624,7 +618,7 @@ pub(crate) fn transform(
         rule_name,
         app_category,
         finding_title:     if finding_title_override.is_empty() { rule_desc } else { finding_title_override },
-        finding_uid:       if finding_uid_override.is_empty()   { rule_id  } else { finding_uid_override   },
+        finding_uid:       rule_id,
         finding_types,
         wazuh_rule_level:  rule_level as u8,
         wazuh_fired_times: rule_fired_times,
