@@ -3,19 +3,26 @@
 #  wazuh-ocsf-etl  —  Installation Script
 #
 #  Usage:
-#    sudo ./install.sh /path/to/wazuh-ocsf-etl
+#    sudo ./install.sh [OPTIONS] /path/to/wazuh-ocsf-etl
 #
-#  What this script does:
+#  Options:
+#    --run-as-root   Run the systemd service as root (solves alerts.json
+#                    permission denied when Wazuh restricts group access)
+#    --uninstall     Remove the binary, service unit, and system user
+#    --help          Show this help message and exit
+#
+#  What this script does (8 steps):
 #    1. Installs the binary to /usr/local/bin/
-#    2. Creates a dedicated system user  wazuh-ocsf
+#    2. Creates a dedicated system user  wazuh-ocsf  (skipped with --run-as-root)
 #    3. Creates /opt/wazuh-ocsf/{config,state}
-#    4. Writes a default .env (you must edit it before starting)
-#    5. Copies config/field_mappings.toml (hot-reloaded at runtime)
-#    6. Creates /etc/systemd/system/wazuh-ocsf-etl.service
-#    7. Enables and starts the service
+#    4. Writes a default .env  (you must edit before starting)
+#    5. Copies config/field_mappings.toml  (hot-reloaded every 10 s at runtime)
+#    6. Sets file ownership/permissions
+#    7. Writes /etc/systemd/system/wazuh-ocsf-etl.service
+#    8. Runs systemctl daemon-reload + enable
 #
-#  Re-running this script on an existing installation is safe — it will
-#  update the binary, config, and service unit without destroying state.
+#  Re-running this script on an existing installation is safe — it updates
+#  the binary and service unit without overwriting .env or field_mappings.toml.
 # ══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -30,6 +37,79 @@ die()     { echo -e "${RED}[ERROR]${RESET} $*" >&2; exit 1; }
 header()  { echo -e "\n${BOLD}── $* ──${RESET}"; }
 
 # ── Argument handling ─────────────────────────────────────────────────────────
+RUN_AS_ROOT=false
+ARGS=()
+for arg in "$@"; do
+    case "$arg" in
+        --run-as-root) RUN_AS_ROOT=true ;;
+        --help|-h)
+            echo -e "${BOLD}wazuh-ocsf-etl install.sh${RESET}  —  Installer for the Wazuh → OCSF → ClickHouse pipeline"
+            echo
+            echo -e "${BOLD}USAGE${RESET}"
+            echo "    sudo ./install.sh [OPTIONS] <path-to-binary>"
+            echo
+            echo -e "${BOLD}OPTIONS${RESET}"
+            echo "    --run-as-root   Run the systemd service as root instead of creating a"
+            echo "                    dedicated 'wazuh-ocsf' system user.  Use this when Wazuh"
+            echo "                    restricts alerts.json to root only and you cannot add the"
+            echo "                    service account to the 'wazuh' group (e.g. hardened builds)."
+            echo
+            echo "    --uninstall     Stop and disable the service, remove the binary and the"
+            echo "                    systemd unit.  Does NOT delete /opt/wazuh-ocsf or the"
+            echo "                    system user (to preserve state and config)."
+            echo
+            echo "    --help, -h      Show this help message and exit."
+            echo
+            echo -e "${BOLD}EXAMPLES${RESET}"
+            echo "    # Standard install — service runs as dedicated 'wazuh-ocsf' user"
+            echo "    sudo ./install.sh ./target/release/wazuh-ocsf-etl"
+            echo
+            echo "    # Install with root ownership — avoids alerts.json permission denied"
+            echo "    sudo ./install.sh --run-as-root ./target/release/wazuh-ocsf-etl"
+            echo
+            echo "    # Upgrade binary on an existing installation (config is preserved)"
+            echo "    cargo build --release"
+            echo "    sudo ./install.sh ./target/release/wazuh-ocsf-etl"
+            echo
+            echo "    # Upgrade with root mode on an existing installation"
+            echo "    sudo ./install.sh --run-as-root ./target/release/wazuh-ocsf-etl"
+            echo
+            echo "    # Uninstall"
+            echo "    sudo ./install.sh --uninstall"
+            echo
+            echo -e "${BOLD}AFTER INSTALL${RESET}"
+            echo "    1.  Edit config :  nano /opt/wazuh-ocsf/.env"
+            echo "    2.  Start       :  systemctl start wazuh-ocsf-etl"
+            echo "    3.  Watch logs  :  journalctl -u wazuh-ocsf-etl -f"
+            echo "    4.  Status      :  systemctl status wazuh-ocsf-etl"
+            echo
+            echo -e "${BOLD}NOTES${RESET}"
+            echo "    • Re-running the script on an existing install is safe."
+            echo "      It replaces only the binary and service unit."
+            echo "      Existing .env and field_mappings.toml are never overwritten."
+            echo
+            echo "    • The default (non-root) mode adds the 'wazuh-ocsf' user to the"
+            echo "      'wazuh' group so it can read alerts.json.  If that still fails"
+            echo "      (e.g. Wazuh uses mode 0600), re-run with --run-as-root."
+            echo
+            echo "    • Hot-reload: edit /opt/wazuh-ocsf/config/field_mappings.toml at"
+            echo "      any time — the pipeline picks up changes within 10 seconds,"
+            echo "      no restart required."
+            echo
+            echo -e "${BOLD}FILES INSTALLED${RESET}"
+            echo "    /usr/local/bin/wazuh-ocsf-etl              binary"
+            echo "    /opt/wazuh-ocsf/.env                       runtime config (edit this)"
+            echo "    /opt/wazuh-ocsf/config/field_mappings.toml custom field mappings"
+            echo "    /opt/wazuh-ocsf/state/                     runtime state (pos file, unmapped report)"
+            echo "    /etc/systemd/system/wazuh-ocsf-etl.service systemd unit"
+            echo
+            exit 0
+            ;;
+        *) ARGS+=("$arg") ;;
+    esac
+done
+set -- "${ARGS[@]+${ARGS[@]}}"
+
 if [[ "${1:-}" == "--uninstall" ]]; then
     # ── Uninstall ──────────────────────────────────────────────────────────
     echo -e "${BOLD}Uninstalling wazuh-ocsf-etl…${RESET}"
@@ -48,14 +128,14 @@ if [[ "${1:-}" == "--uninstall" ]]; then
 fi
 
 if [[ $# -lt 1 ]]; then
-    echo -e "${BOLD}Usage:${RESET}  sudo $0 <path-to-wazuh-ocsf-etl-binary>"
+    echo -e "${BOLD}Usage:${RESET}  sudo $0 [--run-as-root] <path-to-wazuh-ocsf-etl-binary>"
     echo
     echo "  Examples:"
     echo "    sudo $0 ./target/release/wazuh-ocsf-etl"
-    echo "    sudo $0 /tmp/wazuh-ocsf-etl-v2.0.0"
+    echo "    sudo $0 --run-as-root ./target/release/wazuh-ocsf-etl"
     echo
-    echo "  To uninstall:"
-    echo "    sudo $0 --uninstall"
+    echo "  More options:  sudo $0 --help"
+    echo "  To uninstall:  sudo $0 --uninstall"
     exit 1
 fi
 
@@ -81,8 +161,15 @@ INSTALL_DIR="/opt/wazuh-ocsf"
 BIN_DEST="/usr/local/bin/wazuh-ocsf-etl"
 SERVICE_NAME="wazuh-ocsf-etl"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-SERVICE_USER="wazuh-ocsf"
-SERVICE_GROUP="wazuh-ocsf"
+
+if [[ "$RUN_AS_ROOT" == "true" ]]; then
+    SERVICE_USER="root"
+    SERVICE_GROUP="root"
+    info "--run-as-root: service will run as root (bypasses alerts.json permission issues)"
+else
+    SERVICE_USER="wazuh-ocsf"
+    SERVICE_GROUP="wazuh-ocsf"
+fi
 
 # ════════════════════════════════════════════════════════════════════════════
 header "Step 1 — Install binary"
@@ -104,7 +191,9 @@ info "Binary size: $BINARY_SIZE"
 header "Step 2 — Create system user"
 # ════════════════════════════════════════════════════════════════════════════
 
-if ! id -u "${SERVICE_USER}" &>/dev/null; then
+if [[ "$RUN_AS_ROOT" == "true" ]]; then
+    ok "--run-as-root: skipping dedicated user creation (service will run as root)"
+elif ! id -u "${SERVICE_USER}" &>/dev/null; then
     useradd \
         --system \
         --shell /sbin/nologin \
@@ -250,18 +339,37 @@ chmod 750 "${INSTALL_DIR}/state"
 chmod 640 "${INSTALL_DIR}/config/field_mappings.toml"
 ok "Ownership: ${SERVICE_USER}:${SERVICE_GROUP} → ${INSTALL_DIR}"
 
-# Add wazuh-ocsf to the wazuh group so it can read alerts.json
-if getent group wazuh &>/dev/null; then
-    usermod -aG wazuh "${SERVICE_USER}"
-    ok "Added '${SERVICE_USER}' to the 'wazuh' group (alerts.json access)"
+if [[ "$RUN_AS_ROOT" == "true" ]]; then
+    ok "--run-as-root: alerts.json will be readable by root — no group membership needed"
 else
-    warn "'wazuh' group not found — if Wazuh is on this host, run:"
-    warn "    usermod -aG wazuh ${SERVICE_USER}"
+    # Add wazuh-ocsf to the wazuh group so it can read alerts.json
+    if getent group wazuh &>/dev/null; then
+        usermod -aG wazuh "${SERVICE_USER}"
+        ok "Added '${SERVICE_USER}' to the 'wazuh' group (alerts.json access)"
+    else
+        warn "'wazuh' group not found — if Wazuh is on this host, run:"
+        warn "    usermod -aG wazuh ${SERVICE_USER}"
+        warn "Or re-install with --run-as-root to bypass this entirely."
+    fi
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
 header "Step 7 — Install systemd service unit"
 # ════════════════════════════════════════════════════════════════════════════
+
+# Build the security hardening block — relaxed for root mode since
+# ProtectSystem=strict + NoNewPrivileges would be redundant for root,
+# and ReadOnlyPaths restrictions are unnecessary when running as root.
+if [[ "$RUN_AS_ROOT" == "true" ]]; then
+    HARDENING_BLOCK="# Running as root — file-system restrictions omitted."
+else
+    HARDENING_BLOCK="# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=${INSTALL_DIR}/state
+ReadOnlyPaths=/var/ossec/logs/alerts ${INSTALL_DIR}/config
+PrivateTmp=yes"
+fi
 
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
@@ -288,12 +396,7 @@ TimeoutStopSec=30
 LimitNOFILE=65536
 MemoryMax=512M
 
-# Security hardening
-NoNewPrivileges=yes
-ProtectSystem=strict
-ReadWritePaths=${INSTALL_DIR}/state
-ReadOnlyPaths=/var/ossec/logs/alerts ${INSTALL_DIR}/config
-PrivateTmp=yes
+${HARDENING_BLOCK}
 
 [Install]
 WantedBy=multi-user.target
@@ -323,6 +426,9 @@ echo -e "  Field map    : ${CYAN}${INSTALL_DIR}/config/field_mappings.toml${RESE
 echo -e "  State dir    : ${CYAN}${INSTALL_DIR}/state/${RESET}"
 echo -e "  Service unit : ${CYAN}${SERVICE_FILE}${RESET}"
 echo -e "  Service user : ${CYAN}${SERVICE_USER}${RESET}"
+if [[ "$RUN_AS_ROOT" == "true" ]]; then
+    echo -e "  Mode         : ${YELLOW}root (--run-as-root)${RESET}  — full alerts.json access, no group setup needed"
+fi
 echo
 echo -e "${BOLD}Next steps:${RESET}"
 echo -e "  1. Edit the configuration file:"
@@ -337,5 +443,12 @@ echo
 echo -e "  4. Check service status:"
 echo -e "       ${CYAN}systemctl status ${SERVICE_NAME}${RESET}"
 echo
+if [[ "$RUN_AS_ROOT" == "false" ]] && ! getent group wazuh &>/dev/null; then
+    warn "'wazuh' group was not found on this host."
+    warn "If alerts.json permission errors appear in the logs, either:"
+    warn "  a) Run:  usermod -aG wazuh ${SERVICE_USER}  (then restart the service)"
+    warn "  b) Re-install with:  sudo ./install.sh --run-as-root ${BIN_DEST}"
+    echo
+fi
 echo -e "  To uninstall:  ${CYAN}sudo ./install.sh --uninstall${RESET}"
 echo
