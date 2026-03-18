@@ -65,7 +65,7 @@ use db::{ensure_custom_columns, flush_all, BatchMap};
 use state::{StateStore, TailState};
 use tailer::reader_task;
 use transform::transform;
-use unmapped::write_unmapped_report;
+use unmapped::{archive_unmapped_report, write_unmapped_report};
 use validator::OCSF_VALIDATE;
 use zmq::zmq_reader_task;
 
@@ -314,19 +314,18 @@ async fn main() -> Result<()> {
           OCSF_VALIDATE.load(Ordering::Relaxed));
     info!("  unmapped report  : {}", cfg.unmapped_fields_file.display());
 
+    // Archive the previous session's report before this session begins accumulating.
+    // This ensures that data discovered before the restart is never silently lost.
+    archive_unmapped_report(&cfg.unmapped_fields_file);
+
     if cfg.unmapped_fields_file.exists() {
         if let Ok(txt) = std::fs::read_to_string(&cfg.unmapped_fields_file) {
             if let Ok(v) = serde_json::from_str::<Value>(&txt) {
-                if let Some(fields) = v.get("fields").and_then(Value::as_object) {
-                    let mut top: Vec<(u64, &str)> = fields.iter()
-                        .filter_map(|(k, fv)| {
-                            fv.get("count")
-                                .and_then(Value::as_u64)
-                                .map(|c| (c, k.as_str()))
-                        })
+                if let Some(fields) = v.get("fields").and_then(Value::as_array) {
+                    let shown: Vec<&str> = fields.iter()
+                        .filter_map(Value::as_str)
+                        .take(10)
                         .collect();
-                    top.sort_by(|a, b| b.0.cmp(&a.0));
-                    let shown: Vec<&str> = top.iter().take(10).map(|(_, k)| *k).collect();
                     if !shown.is_empty() {
                         info!("  top unmapped fields (add to field_mappings.toml): {:?}", shown);
                     }
@@ -1492,7 +1491,6 @@ ocsf_version = "1.7.0"
             g.insert("test_write_field".to_string(), FieldInfo {
                 count: 7,
                 example: "hello".to_string(),
-                suggested_toml: "# test".to_string(),
             });
         }
         let tmp = std::env::temp_dir().join("wazuh_ocsf_unmapped_test.json");
@@ -1500,9 +1498,12 @@ ocsf_version = "1.7.0"
         let txt = std::fs::read_to_string(&tmp).expect("report file must exist");
         let v: Value = serde_json::from_str(&txt).expect("must be valid JSON");
         assert!(v.get("fields").is_some(), "must have 'fields' key");
-        assert!(v["fields"].get("test_write_field").is_some(),
-                "test_write_field must appear in report");
-        assert_eq!(v["fields"]["test_write_field"]["count"], 7);
+        assert!(
+            v["fields"].as_array()
+                .map(|a| a.iter().any(|e| e.as_str() == Some("test_write_field")))
+                .unwrap_or(false),
+            "test_write_field must appear in report"
+        );
         let _ = std::fs::remove_file(&tmp);
     }
 

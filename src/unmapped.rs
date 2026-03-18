@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+use chrono::Utc;
 use once_cell::sync::Lazy;
 use serde_json::Value;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::config::CustomMappings;
 use crate::field_paths::{
@@ -127,20 +128,101 @@ static KNOWN_PATHS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     // ── Process / sudo context (natively extracted in transform.rs) ─────────
     for p in &["uid", "tty", "pwd"] { s.insert(p); }
 
+    // ── Other generic decoder fields (natively extracted in transform.rs) ───
+    for p in &["file", "title", "gid", "home", "shell", "id", "integration"] { s.insert(p); }
+
     // ── predecoder fields (natively extracted in transform.rs) ──────────────
     for p in &["predecoder.hostname", "predecoder.program_name", "predecoder.timestamp"] {
         s.insert(p);
     }
 
+    // ── SCA (Security Configuration Assessment) native paths ──────────────
+    for p in &[
+        "sca.scan_id", "sca.policy", "sca.policy_id", "sca.description", "sca.file",
+        "sca.score", "sca.total_checks", "sca.passed", "sca.failed", "sca.invalid",
+        "sca.check.id", "sca.check.title", "sca.check.result", "sca.check.description",
+        "sca.check.rationale", "sca.check.remediation", "sca.check.reason",
+        "sca.check.references", "sca.check.command.0", "sca.check.file.0",
+        "sca.check.compliance.cis", "sca.check.compliance.cis_csc",
+        "sca.check.compliance.cis_csc_v7", "sca.check.compliance.cis_csc_v8",
+        "sca.check.compliance.cmmc_v2.0",
+        "sca.check.compliance.hipaa", "sca.check.compliance.iso_27001-2013",
+        "sca.check.compliance.mitre_mitigations", "sca.check.compliance.mitre_tactics",
+        "sca.check.compliance.mitre_techniques", "sca.check.compliance.nist_sp_800-53",
+        "sca.check.compliance.pci_dss_v3.2.1", "sca.check.compliance.pci_dss_v4.0",
+        "sca.check.compliance.soc_2",
+    ] { s.insert(p); }
+
+    // ── Linux audit AVC context (natively extracted in transform.rs) ────────
+    for p in &[
+        "audit.id", "audit.type", "audit.directory.name",
+        "audit.euid", "audit.uid", "audit.gid", "audit.session",
+    ] { s.insert(p); }
+
+    // ── AWS CloudTrail / integrations (natively extracted in transform.rs) ──
+    for p in &[
+        // Top-level CloudTrail fields
+        "aws.source_ip_address", "aws.sourceIPAddress",
+        "aws.eventID", "aws.eventTime", "aws.eventType", "aws.eventCategory",
+        "aws.eventVersion", "aws.requestID", "aws.awsRegion",
+        "aws.userAgent", "aws.managementEvent", "aws.readOnly",
+        "aws.recipientAccountId", "aws.sharedEventID",
+        "aws.sessionCredentialFromConsole", "aws.source", "aws.errorMessage",
+        "aws.aws_account_id",
+        // userIdentity
+        "aws.userIdentity.arn", "aws.userIdentity.type",
+        "aws.userIdentity.invokedBy", "aws.userIdentity.accessKeyId",
+        "aws.userIdentity.credentialId",
+        "aws.userIdentity.sessionContext.attributes.creationDate",
+        "aws.userIdentity.sessionContext.attributes.mfaAuthenticated",
+        "aws.userIdentity.sessionContext.sessionIssuer.arn",
+        "aws.userIdentity.sessionContext.sessionIssuer.accountId",
+        "aws.userIdentity.sessionContext.sessionIssuer.principalId",
+        "aws.userIdentity.sessionContext.sessionIssuer.type",
+        "aws.userIdentity.sessionContext.webIdFederationData.federatedProvider",
+        // additionalEventData
+        "aws.additionalEventData.UserName", "aws.additionalEventData.LoginTo",
+        "aws.additionalEventData.MFAUsed", "aws.additionalEventData.MFAIdentifier",
+        "aws.additionalEventData.MobileVersion", "aws.additionalEventData.CredentialType",
+        "aws.additionalEventData.AuthWorkflowID", "aws.additionalEventData.keyMaterialId",
+        // tlsDetails
+        "aws.tlsDetails.tlsVersion", "aws.tlsDetails.cipherSuite",
+        "aws.tlsDetails.keyExchange", "aws.tlsDetails.clientProvidedHostHeader",
+        // responseElements (typed columns + extensions)
+        "aws.responseElements.ConsoleLogin", "aws.responseElements.status",
+        "aws.responseElements.publicIp", "aws.responseElements.networkInterfaceId",
+        "aws.responseElements.allocationId", "aws.responseElements.snapshotId",
+        "aws.responseElements.volumeId",
+        // requestParameters (extensions)
+        "aws.requestParameters.keyId", "aws.requestParameters.networkInterfaceId",
+        "aws.requestParameters.groupId", "aws.requestParameters.subnetId",
+        "aws.requestParameters.snapshotId", "aws.requestParameters.volumeId",
+        "aws.requestParameters.allocationId",
+        // resources, log_info
+        "aws.resources.ARN", "aws.resources.type", "aws.resources.accountId",
+        "aws.log_info.log_file", "aws.log_info.s3bucket",
+        // serviceEventDetails
+        "aws.serviceEventDetails.UserAuthentication",
+        "aws.serviceEventDetails.state",
+        "aws.serviceEventDetails.CredentialChallenge",
+        "aws.serviceEventDetails.CredentialVerification",
+        "aws.serviceEventDetails.backupVaultName",
+        "aws.serviceEventDetails.resourceType",
+    ] { s.insert(p); }
+
+    // ── AWS requestParameters / responseElements deep nested fields ──────────
+    // These are EC2/CloudTrail API parameters that vary per-call.  They are
+    // stored in the raw event and the simple ones are extracted above; the
+    // remaining deeply-nested array items (tagSet, ipPermissions items, etc.)
+    // are suppressed here to keep the unmapped report focused on actionable fields.
     s
 });
 
 /// Per-field stats accumulated at runtime.
-#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct FieldInfo {
-    pub(crate) count:          u64,
-    pub(crate) example:        String,
-    pub(crate) suggested_toml: String,
+    pub(crate) count:   u64,
+    pub(crate) example: String,
 }
 
 /// Global accumulator for unmapped field paths.
@@ -167,13 +249,16 @@ pub(crate) fn track_unmapped_fields(data_val: &Value, custom: &CustomMappings) {
     for (path, example) in leaves {
         if KNOWN_PATHS.contains(path.as_str()) { continue; }
         if custom_keys.contains(path.as_str()) { continue; }
+        // Suppress deeply-nested AWS API parameters/response fields — these are
+        // per-call EC2/service payloads (tag arrays, ipPermissions items, etc.)
+        // that have no standard OCSF mapping and would flood the report.
+        if path.starts_with("aws.requestParameters.") || path.starts_with("aws.responseElements.") {
+            continue;
+        }
 
         let entry = guard.entry(path.clone()).or_insert_with(|| FieldInfo {
             count:   0,
             example: example.clone(),
-            suggested_toml: format!(
-                r#"# "{path}" = "src_ip"  # TODO: choose a valid target column"#
-            ),
         });
         entry.count += 1;
         if !example.is_empty() {
@@ -182,7 +267,27 @@ pub(crate) fn track_unmapped_fields(data_val: &Value, custom: &CustomMappings) {
     }
 }
 
+/// Archive the existing unmapped_fields report (if any) to a timestamped file
+/// before the current session's in-memory tracker is reset on startup.
+/// This preserves the previous run's discoveries so nothing is lost on restart.
+pub(crate) fn archive_unmapped_report(path: &Path) {
+    if !path.exists() { return; }
+    let ts = Utc::now().format("%Y%m%dT%H%M%SZ");
+    let archive = path.with_file_name(format!(
+        "{}.{ts}.bak",
+        path.file_stem().and_then(|s| s.to_str()).unwrap_or("unmapped_fields")
+    ));
+    if let Err(e) = std::fs::rename(path, &archive) {
+        warn!("unmapped_fields: archive failed ({} → {}): {e}",
+              path.display(), archive.display());
+    } else {
+        info!("unmapped_fields: previous report archived → {}", archive.display());
+    }
+}
+
 /// Serialize UNMAPPED_TRACKER to `path` atomically (write temp → rename).
+/// Only the sorted list of field names is written — count/example are omitted
+/// to keep the file simple and scannable.
 pub(crate) fn write_unmapped_report(path: &Path) {
     let guard = match UNMAPPED_TRACKER.lock() {
         Ok(g)  => g,
@@ -190,26 +295,16 @@ pub(crate) fn write_unmapped_report(path: &Path) {
     };
     if guard.is_empty() { return; }
 
+    // Sort by descending occurrence count so the most common unknowns appear first.
     let mut fields: Vec<(&String, &FieldInfo)> = guard.iter().collect();
     fields.sort_by(|a, b| b.1.count.cmp(&a.1.count).then(a.0.cmp(b.0)));
 
-    let fields_map: serde_json::Map<String, Value> = fields.into_iter()
-        .map(|(k, v)| (k.clone(), serde_json::to_value(v).unwrap_or(Value::Null)))
-        .collect();
+    let field_names: Vec<&str> = fields.iter().map(|(k, _)| k.as_str()).collect();
 
     let doc = serde_json::json!({
         "note": "Fields from data.* that are not yet mapped to an OCSF typed column. \
                  Add entries to config/field_mappings.toml to promote them.",
-        "valid_targets": [
-            "src_ip","dst_ip","src_port","dst_port",
-            "nat_src_ip","nat_dst_ip","nat_src_port","nat_dst_port",
-            "actor_user","target_user","domain","url",
-            "http_method","http_status","app_name","src_hostname","dst_hostname",
-            "file_name","process_name","process_id","rule_name","app_category",
-            "interface_in","interface_out","bytes_in","bytes_out",
-            "network_protocol","action","status"
-        ],
-        "fields": fields_map,
+        "fields": field_names,
     });
 
     let tmp = path.with_extension("json.tmp");

@@ -171,14 +171,14 @@ $EDITOR .env
 | `INPUT_MODE` | `file` | Input source: `file` or `zeromq` — only one active at a time |
 | `ZEROMQ_URI` | `tcp://localhost:11111` | ZeroMQ URI to subscribe to (ZEROMQ mode only) |
 | `STATE_FILE` | `state/alerts.pos` | Where to persist inode + byte offset |
-| `SEEK_TO_END_ON_FIRST_RUN` | `true` | First-run behaviour — see [§6](#6-first-run-behaviour-large-existing-files) |
+| `SEEK_TO_END_ON_FIRST_RUN` | `true` | First-run behaviour — see [6](#6-first-run-behaviour-large-existing-files) |
 | `BATCH_SIZE` | `5000` | Flush a per-table buffer once it reaches this many rows — tune up for high EPS |
 | `FLUSH_INTERVAL_SECS` | `5` | Also flush on a timer when batch not yet full (low-EPS safety net) |
 | `CHANNEL_CAP` | `50000` | Internal async queue depth between reader and writer (~1 KB/slot, ≈50 MB) |
 | `SPECIAL_LOCATIONS` | *(empty)* | Comma-separated location names routed to shared tables |
 | `DATA_TTL_DAYS` | `90` | Delete rows older than N days (empty = keep forever) |
-| `UNMAPPED_FIELDS_FILE` | `state/unmapped_fields.json` | JSON report of `data.*` fields not yet mapped to OCSF columns — updated on every flush. See [§11](#11-unmapped-field-discovery). |
-| `OCSF_VALIDATE` | `true` | Run OCSF 1.7.0 schema checks after every transform. Violations are logged at `WARN` level — events are **always** forwarded to ClickHouse. Set `false` to disable during load testing. See [§18](#18-ocsf-schema-validation). |
+| `UNMAPPED_FIELDS_FILE` | `state/unmapped_fields.json` | JSON report of `data.*` fields not yet mapped to OCSF columns — updated on every flush. See [11](#11-unmapped-field-discovery). |
+| `OCSF_VALIDATE` | `true` | Run OCSF 1.7.0 schema checks after every transform. Violations are logged at `WARN` level — events are **always** forwarded to ClickHouse. Set `false` to disable during load testing. See [18](#18-ocsf-schema-validation). |
 | `RUST_LOG` | `info` | Log level: `error`, `warn`, `info`, `debug`, `trace` |
 
 ### Minimal `.env` for a standard deployment
@@ -195,7 +195,7 @@ DATA_TTL_DAYS=180
 ### `config/field_mappings.toml`
 
 This file is **hot-reloaded every 10 seconds** — no restart needed.  
-See [§7](#7-custom-field-mappings) for details.
+See [7](#7-custom-field-mappings) for details.
 
 ---
 
@@ -800,12 +800,20 @@ Standard Wazuh modules produce structured fields that are extracted in code. No 
 | Wazuh alert field | OCSF column / extension | Notes |
 |---|---|---|
 | `data.uid` | **`extensions.actor_uid`** | Numeric UID |
+| `data.gid` | **`extensions.actor_gid`** | Numeric GID |
+| `data.home` | **`extensions.actor_home_dir`** | Home directory |
+| `data.shell` | **`extensions.actor_shell`** | Login shell |
 | `data.tty` | **`extensions.tty`** | Terminal device |
 | `data.pwd` | **`extensions.working_dir`** | Current working directory |
+| `data.file` | **`file_name`** | File name from generic decoder |
+| `audit.euid` | **`extensions.audit_euid`** | Effective UID (auditd) |
+| `audit.uid` | **`extensions.audit_uid`** | Real UID (auditd) |
+| `audit.gid` | **`extensions.audit_gid`** | Real GID (auditd) |
+| `audit.session` | **`extensions.audit_session`** | Audit session ID |
 
 ### For fields not yet covered
 
-Any field the pipeline sees but doesn't recognise is automatically recorded in `state/unmapped_fields.json`. See [§11](#11-unmapped-field-discovery).
+Any field the pipeline sees but doesn't recognise is automatically recorded in `state/unmapped_fields.json`. See [11](#11-unmapped-field-discovery).
 
 ---
 
@@ -813,7 +821,7 @@ Any field the pipeline sees but doesn't recognise is automatically recorded in `
 
 Every `data.*` field path present in a live alert that is **not** already covered by a built-in constant or a custom `field_mappings.toml` entry is recorded automatically. This gives operators a continuously-updated list of fields they can promote to typed OCSF columns.
 
-> **Standard Wazuh module fields are never reported here.** The 130+ paths from `vulnerability.*`, `win.system.*`, `win.eventdata.*`, dpkg fields, and process context (`uid`, `tty`, `pwd`) are all natively extracted and are excluded from the unmapped report. Only truly unrecognised custom decoder fields appear.
+> **Standard Wazuh module fields are never reported here.** The 150+ paths from `vulnerability.*`, `win.system.*`, `win.eventdata.*`, dpkg fields, process context (`uid`, `gid`, `tty`, `pwd`, `home`, `shell`), audit fields (`audit.euid`, `audit.uid`, `audit.gid`, `audit.session`), SCA fields (`sca.check.*`, `sca.policy_id`, etc.), and AWS CloudTrail fields are all natively extracted and are excluded from the unmapped report. Only truly unrecognised custom decoder fields appear.
 
 ### The report file
 
@@ -822,23 +830,20 @@ After every successful ClickHouse flush, the pipeline writes `state/unmapped_fie
 ```json
 {
   "note": "Fields from data.* that are not yet mapped to an OCSF typed column. Add entries to config/field_mappings.toml to promote them.",
-  "valid_targets": ["src_ip", "dst_ip", "src_port", ...],
-  "fields": {
-    "edr.threat.name": {
-      "count": 1842,
-      "example": "Cobalt Strike Beacon",
-      "suggested_toml": "# \"edr.threat.name\" = \"src_ip\"  # TODO: choose a valid target column"
-    },
-    "pan.app_category": {
-      "count": 307,
-      "example": "business-systems",
-      "suggested_toml": "# \"pan.app_category\" = \"src_ip\"  # TODO: choose a valid target column"
-    }
-  }
+  "fields": [
+    "edr.threat.name",
+    "pan.app_category"
+  ]
 }
 ```
 
-Fields are sorted by **count descending** — the most frequently occurring unmapped fields appear first.
+Fields are sorted by frequency — the most frequently occurring unmapped fields appear first.
+
+### Archival on restart
+
+On each startup, the previous session's report is automatically renamed to  
+`state/unmapped_fields.YYYYMMDDTHHMMSSZ.bak` before a fresh report begins accumulating.  
+Historical discoveries are never silently lost — check the `.bak` files to see what prior runs observed.
 
 ### Startup log
 
@@ -850,9 +855,9 @@ INFO   top unmapped fields (add to field_mappings.toml): ["edr.threat.name", "pa
 
 ### Acting on the report
 
-1. Open `state/unmapped_fields.json`
-2. For each field you want to promote, copy its `suggested_toml` line into `config/field_mappings.toml`
-3. Replace `src_ip` with the correct target column from the `valid_targets` list
+1. Open `state/unmapped_fields.json` (or a `.bak` archive for a past session)
+2. For each field you want to promote, add an entry to `config/field_mappings.toml`
+3. Choose the correct target column (see [4 of FIELD_MAPPINGS.md](FIELD_MAPPINGS.md) for valid targets)
 4. Save — hot-reload picks it up within 10 seconds
 5. That field will stop appearing in future reports and will be written to a typed ClickHouse column
 
@@ -1242,8 +1247,15 @@ Fields that don't map to a dedicated typed column are written to the `extensions
 | `data.version` (dpkg) | `package_version` | |
 | `data.architecture` (dpkg) | `package_arch` | |
 | `data.uid` | `actor_uid` | Numeric UID |
+| `data.gid` | `actor_gid` | Numeric GID |
+| `data.home` | `actor_home_dir` | Home directory |
+| `data.shell` | `actor_shell` | Login shell |
 | `data.tty` | `tty` | Terminal device |
 | `data.pwd` | `working_dir` | Working directory |
+| `audit.euid` | `audit_euid` | Effective UID (auditd) |
+| `audit.uid` | `audit_uid` | Real UID (auditd) |
+| `audit.gid` | `audit_gid` | Real GID (auditd) |
+| `audit.session` | `audit_session` | Audit session ID |
 
 ### Compliance tags
 
@@ -1533,7 +1545,7 @@ After every successful `transform()` call the pipeline runs a lightweight OCSF 1
 |---|---|
 | `class_uid` is a recognised OCSF 1.7.0 class | Rogue class IDs if `classify_event()` produces an unknown value |
 | `severity_id` is in `{0, 1, 2, 3, 4, 5, 6, 99}` | Out-of-range values if Wazuh rule levels change unexpectedly |
-| `type_uid == class_uid × 100 + activity_id` | The OCSF 1.7.0 §type_uid derived-field formula — detects any class/activity mismatch |
+| `type_uid == class_uid × 100 + activity_id` | The OCSF 1.7.0 type_uid derived-field formula — detects any class/activity mismatch |
 | `activity_id` is valid for the class | e.g. activity_id 7 on a Network Activity record (which has no activity 7) |
 | `category_uid` and `category_name` match the class | Prevents category drift when the classification table is edited |
 | `time != 0` | `@timestamp` was missing or failed to parse — silent data quality issue |
@@ -1607,7 +1619,7 @@ The columns with the highest incoming-variant count — all collapsed to one sta
 
 ### Verified against OCSF 1.7.0
 
-All remaining fields left in `extensions` were checked against the complete OCSF 1.7.0 attribute dictionary across all 31 classes and `base_event`. None of them have an equivalent typed OCSF column — they are legitimately vendor-opaque identifiers, internal codes, and platform-specific metrics. Storing them in `extensions` is correct per the OCSF extensibility model (§ "Profiles & Extensions").
+All remaining fields left in `extensions` were checked against the complete OCSF 1.7.0 attribute dictionary across all 31 classes and `base_event`. None of them have an equivalent typed OCSF column — they are legitimately vendor-opaque identifiers, internal codes, and platform-specific metrics. Storing them in `extensions` is correct per the OCSF extensibility model ( "Profiles & Extensions").
 
 The 567 path variants were derived by auditing:
 - All **171 Wazuh decoder XML files** (`<order>` tag fields from `/var/ossec/ruleset/decoders/`)
@@ -1632,10 +1644,10 @@ All 29 extraction arrays were audited against the OCSF 1.7.0 attribute dictionar
 ### Adding more mappings
 
 Promote any field from `extensions` to a typed column either:
-- **At runtime** via `config/field_mappings.toml` — hot-reloaded within 10 s, no restart. See [§9](#9-custom-field-mappings).
+- **At runtime** via `config/field_mappings.toml` — hot-reloaded within 10 s, no restart. See [9](#9-custom-field-mappings).
 - **At compile time** — add a source variant to the appropriate constant in `src/field_paths.rs` and rebuild.
 
-Use the unmapped-field report ([§11](#11-unmapped-field-discovery)) to identify the highest-frequency unmapped fields from live traffic before deciding which to promote.
+Use the unmapped-field report ([11](#11-unmapped-field-discovery)) to identify the highest-frequency unmapped fields from live traffic before deciding which to promote.
 
 ---
 

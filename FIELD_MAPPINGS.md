@@ -149,8 +149,8 @@ Automatically derived — no config required.
 | `category_name` | `System Activity`, `Findings`, `Identity & Access Management`, `Network Activity` | |
 | `severity_id` | 0=Unknown, 1=Informational, 2=Low, 3=Medium, 4=High, 5=Critical | Mapped from `wazuh_rule_level` (see table below) |
 | `severity` | Unknown / Informational / Low / Medium / High / Critical | String label |
-| `status_id` | 0=Unknown, 1=New (findings) or Success (ops), 2=InProgress/Failure, 3=Suppressed, 4=Resolved, 99=Other | Context-dependent — see README §15 |
-| `activity_id` | Class-dependent | See README §15 for per-class values |
+| `status_id` | 0=Unknown, 1=New (findings) or Success (ops), 2=InProgress/Failure, 3=Suppressed, 4=Resolved, 99=Other | Context-dependent — see README 15 |
+| `activity_id` | Class-dependent | See README 15 for per-class values |
 | `type_uid` | = `class_uid * 100 + activity_id` | OCSF required derived field |
 
 **Severity mapping from Wazuh rule level:**
@@ -328,7 +328,7 @@ No data is ever dropped. Four additional columns capture everything not in a typ
 | Column | Contents |
 |---|---|
 | `event_data` | Full `data.*` subtree from the Wazuh alert (raw vendor fields, JSON string) |
-| `extensions` | Custom-mapped extras + predefined sub-fields (see §4) |
+| `extensions` | Custom-mapped extras + predefined sub-fields (see 4) |
 | `unmapped` | Unknown top-level JSON keys from the Wazuh alert (rarely populated) |
 | `raw_data` | The complete original Wazuh JSON alert line |
 
@@ -432,12 +432,32 @@ Events decoded by `aws-cloudtrail` / `cloudtrail` decoder.
 | `aws.responseElements.ConsoleLogin` | `status` | Login result |
 | `aws.errorCode` | `status` | Error code → status=Failure |
 | `aws.userIdentity.type` | `app_category` | IAMUser / AssumedRole / AWSService |
+| `aws.userIdentity.sessionContext.sessionIssuer.arn` | `actor_user` | Role ARN (fallback when no userName) |
 | **Extensions sub-fields** | | |
 | `aws.eventID` | `extensions.aws_event_id` | UUID |
 | `aws.awsRegion` | `extensions.aws_region` | e.g. `"us-east-1"` |
 | `aws.userAgent` | `extensions.aws_user_agent` | SDK/CLI/browser |
 | `aws.userIdentity.type` | `extensions.aws_identity_type` | IAMUser/AssumedRole/… |
 | `aws.additionalEventData.MFAUsed` | `extensions.aws_mfa_used` | `"Yes"` / `"No"` |
+| `aws.additionalEventData.MFAIdentifier` | `extensions.aws_mfa_identifier` | MFA device ARN |
+| `aws.eventTime` | `extensions.aws_event_time` | ISO 8601 event timestamp |
+| `aws.userIdentity.sessionContext.sessionIssuer.type` | `extensions.aws_session_issuer_type` | Role / User |
+| `aws.userIdentity.sessionContext.sessionIssuer.principalId` | `extensions.aws_session_principal_id` | Principal UUID |
+| `aws.userIdentity.sessionContext.sessionIssuer.accountId` | `extensions.aws_session_issuer_account` | Owning account |
+| `aws.userIdentity.sessionContext.attributes.mfaAuthenticated` | `extensions.aws_session_mfa_auth` | true / false |
+| `aws.userIdentity.sessionContext.attributes.creationDate` | `extensions.aws_session_created_at` | Session creation time |
+| `aws.userIdentity.sessionContext.webIdFederationData.federatedProvider` | `extensions.aws_federated_provider` | OIDC/SAML provider |
+| `aws.requestParameters.networkInterfaceId` | `extensions.aws_req_network_interface_id` | ENI ID |
+| `aws.requestParameters.groupId` | `extensions.aws_req_security_group_id` | Security group ID |
+| `aws.requestParameters.subnetId` | `extensions.aws_req_subnet_id` | Subnet ID |
+| `aws.requestParameters.snapshotId` | `extensions.aws_req_snapshot_id` | EBS snapshot ID |
+| `aws.requestParameters.volumeId` | `extensions.aws_req_volume_id` | EBS volume ID |
+| `aws.requestParameters.allocationId` | `extensions.aws_req_allocation_id` | EIP allocation ID |
+| `aws.responseElements.publicIp` | `extensions.aws_res_public_ip` | Allocated public IP |
+| `aws.responseElements.networkInterfaceId` | `extensions.aws_res_network_interface_id` | Returned ENI ID |
+| `aws.responseElements.allocationId` | `extensions.aws_res_allocation_id` | Returned EIP allocation ID |
+| `aws.responseElements.snapshotId` | `extensions.aws_res_snapshot_id` | Created snapshot ID |
+| `aws.responseElements.volumeId` | `extensions.aws_res_volume_id` | Created volume ID |
 | `aws.tlsDetails.tlsVersion` | `extensions.tls_version` | e.g. `"TLSv1.2"` |
 | `aws.resources.ARN` | `extensions.aws_resource_arn` | |
 | `aws.errorMessage` | `extensions.aws_error_message` | API error detail |
@@ -669,10 +689,33 @@ Events from `sca` group. Class 2003 (Compliance Finding).
 | `sca.scan_id` | `extensions.sca_scan_id` | Scan UUID |
 | `sca.check.id` | `extensions.sca_check_id` | Check number |
 | `sca.check.compliance.cis` | `extensions.sca_cis_control` | CIS control reference |
+| `sca.check.compliance.cis_csc_v7` | `extensions.sca_cis_csc_v7` | CIS CSC v7 control |
+| `sca.check.compliance.cis_csc_v8` | `extensions.sca_cis_csc_v8` | CIS CSC v8 control |
+| `sca.check.compliance.cmmc_v2.0` | `extensions.sca_cmmc_v2` | CMMC 2.0 practice |
+| `sca.check.compliance.hipaa` | `extensions.sca_hipaa` | HIPAA safeguard |
+| `sca.check.compliance.iso_27001-2013` | `extensions.sca_iso_27001` | ISO 27001 control |
+| `sca.check.compliance.mitre_mitigations` | `extensions.sca_mitre_mitigations` | MITRE ATT&CK mitigation ID |
+| `sca.check.compliance.mitre_tactics` | `extensions.sca_mitre_tactics` | MITRE ATT&CK tactic |
+| `sca.check.compliance.mitre_techniques` | `extensions.sca_mitre_techniques` | MITRE ATT&CK technique |
+| `sca.check.compliance.nist_sp_800-53` | `extensions.sca_nist_800_53` | NIST SP 800-53 control |
+| `sca.check.compliance.pci_dss_v3.2.1` | `extensions.sca_pci_dss_v3` | PCI DSS v3.2.1 requirement |
+| `sca.check.compliance.pci_dss_v4.0` | `extensions.sca_pci_dss_v4` | PCI DSS v4.0 requirement |
+| `sca.check.compliance.soc_2` | `extensions.sca_soc2` | SOC 2 criteria |
+| `sca.check.command[0]` | `extensions.sca_check_command` | Audit command |
+| `sca.check.file[0]` | `extensions.sca_check_file` | Audited file path |
+| `sca.check.references` | `extensions.sca_references` | Check reference URL |
 | `sca.check.description` | `extensions.sca_description` | Full check text |
 | `sca.check.rationale` | `extensions.sca_rationale` | Why this matters |
 | `sca.check.remediation` | `extensions.sca_remediation` | How to fix it |
 | `sca.check.reason` | `extensions.sca_reason` | Why it failed |
+| `sca.policy_id` | `extensions.sca_policy_id` | Benchmark ID slug |
+| `sca.description` | `extensions.sca_policy_description` | Benchmark description |
+| `sca.file` | `extensions.sca_policy_file` | Policy definition file |
+| `sca.score` | `extensions.sca_score` | Overall score (0-100) |
+| `sca.total_checks` | `extensions.sca_total_checks` | Total checks in scan |
+| `sca.passed` | `extensions.sca_passed_count` | Passed check count |
+| `sca.failed` | `extensions.sca_failed_count` | Failed check count |
+| `sca.invalid` | `extensions.sca_invalid_count` | Invalid/skipped check count |
 
 ---
 
@@ -697,11 +740,34 @@ The `extensions` column is a JSON string. Query with `JSONExtractString(extensio
 | `sca_scan_id` | `sca.scan_id` | Scan UUID |
 | `sca_check_id` | `sca.check.id` | CIS check number |
 | `sca_cis_control` | `sca.check.compliance.cis` | CIS control reference |
-| `sca_cis_csc` | `sca.check.compliance.cis_csc` | CIS CSC control |
+| `sca_cis_csc` | `sca.check.compliance.cis_csc` | CIS CSC control (legacy) |
+| `sca_cis_csc_v7` | `sca.check.compliance.cis_csc_v7` | CIS CSC v7 control |
+| `sca_cis_csc_v8` | `sca.check.compliance.cis_csc_v8` | CIS CSC v8 control |
+| `sca_cmmc_v2` | `sca.check.compliance.cmmc_v2.0` | CMMC 2.0 practice |
+| `sca_hipaa` | `sca.check.compliance.hipaa` | HIPAA safeguard |
+| `sca_iso_27001` | `sca.check.compliance.iso_27001-2013` | ISO 27001 control |
+| `sca_mitre_mitigations` | `sca.check.compliance.mitre_mitigations` | MITRE ATT&CK mitigation ID |
+| `sca_mitre_tactics` | `sca.check.compliance.mitre_tactics` | MITRE ATT&CK tactic |
+| `sca_mitre_techniques` | `sca.check.compliance.mitre_techniques` | MITRE ATT&CK technique |
+| `sca_nist_800_53` | `sca.check.compliance.nist_sp_800-53` | NIST SP 800-53 control |
+| `sca_pci_dss_v3` | `sca.check.compliance.pci_dss_v3.2.1` | PCI DSS v3.2.1 requirement |
+| `sca_pci_dss_v4` | `sca.check.compliance.pci_dss_v4.0` | PCI DSS v4.0 requirement |
+| `sca_soc2` | `sca.check.compliance.soc_2` | SOC 2 Trust Service Criteria |
+| `sca_check_command` | `sca.check.command[0]` | Audit command run |
+| `sca_check_file` | `sca.check.file[0]` | Audited file path |
+| `sca_references` | `sca.check.references` | Check reference URL |
 | `sca_description` | `sca.check.description` | Check description |
 | `sca_rationale` | `sca.check.rationale` | Security rationale |
 | `sca_remediation` | `sca.check.remediation` | Remediation steps |
 | `sca_reason` | `sca.check.reason` | Failure reason |
+| `sca_policy_id` | `sca.policy_id` | Benchmark ID slug |
+| `sca_policy_description` | `sca.description` | Benchmark description |
+| `sca_policy_file` | `sca.file` | Policy definition file |
+| `sca_score` | `sca.score` | Overall score (0–100) |
+| `sca_total_checks` | `sca.total_checks` | Total checks in scan |
+| `sca_passed_count` | `sca.passed` | Passed check count |
+| `sca_failed_count` | `sca.failed` | Failed check count |
+| `sca_invalid_count` | `sca.invalid` | Invalid / skipped check count |
 
 ### FIM (File Integrity Monitoring)
 
@@ -719,10 +785,17 @@ The `extensions` column is a JSON string. Query with `JSONExtractString(extensio
 | Key | Source field | Description |
 |---|---|---|
 | `actor_uid` | `data.uid` | Numeric UID |
+| `actor_gid` | `data.gid` | Numeric GID |
+| `actor_home_dir` | `data.home` | Home directory |
+| `actor_shell` | `data.shell` | Login shell |
 | `tty` | `data.tty` | Terminal device |
 | `working_dir` | `data.pwd` | Working directory |
 | `audit_type` | `audit.type` | auditd syscall type |
 | `audit_id` | `audit.id` | auditd event ID |
+| `audit_euid` | `audit.euid` | Effective UID (auditd) |
+| `audit_uid` | `audit.uid` | Real UID (auditd) |
+| `audit_gid` | `audit.gid` | Real GID (auditd) |
+| `audit_session` | `audit.session` | Audit session ID |
 
 ### dpkg / apt packages
 
@@ -741,7 +814,26 @@ The `extensions` column is a JSON string. Query with `JSONExtractString(extensio
 | `aws_user_agent` | `aws.userAgent` | SDK / CLI / console |
 | `aws_identity_type` | `aws.userIdentity.type` | IAMUser / AssumedRole / AWSService |
 | `aws_mfa_used` | `aws.additionalEventData.MFAUsed` | Yes / No |
+| `aws_mfa_identifier` | `aws.additionalEventData.MFAIdentifier` | MFA device ARN |
+| `aws_event_time` | `aws.eventTime` | ISO 8601 event timestamp |
 | `aws_access_key_id` | `aws.userIdentity.accessKeyId` | Long-term or session key |
+| `aws_session_issuer_type` | `aws.userIdentity.sessionContext.sessionIssuer.type` | Role / User |
+| `aws_session_principal_id` | `aws.userIdentity.sessionContext.sessionIssuer.principalId` | Principal UUID |
+| `aws_session_issuer_account` | `aws.userIdentity.sessionContext.sessionIssuer.accountId` | Owning account ID |
+| `aws_session_mfa_auth` | `aws.userIdentity.sessionContext.attributes.mfaAuthenticated` | true / false |
+| `aws_session_created_at` | `aws.userIdentity.sessionContext.attributes.creationDate` | Session creation time |
+| `aws_federated_provider` | `aws.userIdentity.sessionContext.webIdFederationData.federatedProvider` | OIDC/SAML provider |
+| `aws_req_network_interface_id` | `aws.requestParameters.networkInterfaceId` | ENI ID |
+| `aws_req_security_group_id` | `aws.requestParameters.groupId` | Security group ID |
+| `aws_req_subnet_id` | `aws.requestParameters.subnetId` | Subnet ID |
+| `aws_req_snapshot_id` | `aws.requestParameters.snapshotId` | EBS snapshot ID |
+| `aws_req_volume_id` | `aws.requestParameters.volumeId` | EBS volume ID |
+| `aws_req_allocation_id` | `aws.requestParameters.allocationId` | EIP allocation ID |
+| `aws_res_public_ip` | `aws.responseElements.publicIp` | Allocated public IP |
+| `aws_res_network_interface_id` | `aws.responseElements.networkInterfaceId` | Returned ENI ID |
+| `aws_res_allocation_id` | `aws.responseElements.allocationId` | Returned EIP allocation ID |
+| `aws_res_snapshot_id` | `aws.responseElements.snapshotId` | Created snapshot ID |
+| `aws_res_volume_id` | `aws.responseElements.volumeId` | Created volume ID |
 | `tls_version` | `aws.tlsDetails.tlsVersion` | TLS version |
 | `tls_cipher_suite` | `aws.tlsDetails.cipherSuite` | Cipher suite |
 | `aws_resource_arn` | `aws.resources.ARN` | Affected resource ARN |

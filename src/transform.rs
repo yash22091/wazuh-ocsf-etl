@@ -302,9 +302,38 @@ pub(crate) fn transform(
     { let v = jpath(&data_val, "sca.check.rationale");        if !v.is_empty() { extensions.insert("sca_rationale".into(),      Value::String(v.to_string())); } }
     { let v = jpath(&data_val, "sca.check.remediation");      if !v.is_empty() { extensions.insert("sca_remediation".into(),    Value::String(v.to_string())); } }
     { let v = jpath(&data_val, "sca.check.reason");           if !v.is_empty() { extensions.insert("sca_reason".into(),         Value::String(v.to_string())); } }
+    // SCA extended compliance framework tags (multiple standards observed in the field)
+    { let v = jpath(&data_val, "sca.check.compliance.cis_csc_v7");        if !v.is_empty() { extensions.insert("sca_cis_csc_v7".into(),         Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.check.compliance.cis_csc_v8");        if !v.is_empty() { extensions.insert("sca_cis_csc_v8".into(),         Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.check.compliance.cmmc_v2.0");         if !v.is_empty() { extensions.insert("sca_cmmc_v2".into(),            Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.check.compliance.hipaa");             if !v.is_empty() { extensions.insert("sca_hipaa".into(),               Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.check.compliance.iso_27001-2013");    if !v.is_empty() { extensions.insert("sca_iso_27001".into(),           Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.check.compliance.mitre_mitigations"); if !v.is_empty() { extensions.insert("sca_mitre_mitigations".into(),   Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.check.compliance.mitre_tactics");     if !v.is_empty() { extensions.insert("sca_mitre_tactics".into(),       Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.check.compliance.mitre_techniques");  if !v.is_empty() { extensions.insert("sca_mitre_techniques".into(),    Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.check.compliance.nist_sp_800-53");    if !v.is_empty() { extensions.insert("sca_nist_800_53".into(),         Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.check.compliance.pci_dss_v3.2.1");   if !v.is_empty() { extensions.insert("sca_pci_dss_v3".into(),          Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.check.compliance.pci_dss_v4.0");     if !v.is_empty() { extensions.insert("sca_pci_dss_v4".into(),          Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.check.compliance.soc_2");            if !v.is_empty() { extensions.insert("sca_soc2".into(),                 Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.check.command.0");                   if !v.is_empty() { extensions.insert("sca_check_command".into(),        Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.check.file.0");                      if !v.is_empty() { extensions.insert("sca_check_file".into(),           Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.check.references");                  if !v.is_empty() { extensions.insert("sca_references".into(),           Value::String(v.to_string())); } }
+    // SCA policy-level summary fields (scan result overview rows)
+    { let v = jpath(&data_val, "sca.policy_id");     if !v.is_empty() { extensions.insert("sca_policy_id".into(),          Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.description");   if !v.is_empty() { extensions.insert("sca_policy_description".into(), Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.file");          if !v.is_empty() { extensions.insert("sca_policy_file".into(),        Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.score");         if !v.is_empty() { extensions.insert("sca_score".into(),              Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.total_checks");  if !v.is_empty() { extensions.insert("sca_total_checks".into(),       Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.passed");        if !v.is_empty() { extensions.insert("sca_passed_count".into(),       Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.failed");        if !v.is_empty() { extensions.insert("sca_failed_count".into(),       Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "sca.invalid");       if !v.is_empty() { extensions.insert("sca_invalid_count".into(),      Value::String(v.to_string())); } }
     // Linux audit AVC context
     { let v = jpath(&data_val, "audit.type");                 if !v.is_empty() { extensions.insert("audit_type".into(),         Value::String(v.to_string())); } }
     { let v = jpath(&data_val, "audit.id");                   if !v.is_empty() { extensions.insert("audit_id".into(),           Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "audit.euid");                 if !v.is_empty() { extensions.insert("audit_euid".into(),         Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "audit.uid");                  if !v.is_empty() { extensions.insert("audit_uid".into(),          Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "audit.gid");                  if !v.is_empty() { extensions.insert("audit_gid".into(),          Value::String(v.to_string())); } }
+    { let v = jpath(&data_val, "audit.session");              if !v.is_empty() { extensions.insert("audit_session".into(),      Value::String(v.to_string())); } }
     // FIM / syscheck hash digests
     { let v = get_sc("md5_after");    if !v.is_empty() { extensions.insert("fim_md5".into(),    Value::String(v)); } }
     { let v = get_sc("sha1_after");   if !v.is_empty() { extensions.insert("fim_sha1".into(),   Value::String(v)); } }
@@ -321,6 +350,16 @@ pub(crate) fn transform(
     if let Some(s) = data_val.get("uid").and_then(Value::as_str) { if !s.is_empty() { extensions.insert("actor_uid".into(),   Value::String(s.to_string())); } }
     if let Some(s) = data_val.get("tty").and_then(Value::as_str) { if !s.is_empty() { extensions.insert("tty".into(),         Value::String(s.to_string())); } }
     if let Some(s) = data_val.get("pwd").and_then(Value::as_str) { if !s.is_empty() { extensions.insert("working_dir".into(), Value::String(s.to_string())); } }
+    // Other generic decoder context fields
+    if file_name.is_empty() {
+        if let Some(s) = data_val.get("file").and_then(Value::as_str) { if !s.is_empty() { file_name = s.to_string(); } }
+    }
+    if finding_title_override.is_empty() {
+        if let Some(s) = data_val.get("title").and_then(Value::as_str) { if !s.is_empty() { finding_title_override = s.to_string(); } }
+    }
+    if let Some(s) = data_val.get("gid").and_then(Value::as_str)   { if !s.is_empty() { extensions.insert("actor_gid".into(),      Value::String(s.to_string())); } }
+    if let Some(s) = data_val.get("home").and_then(Value::as_str)  { if !s.is_empty() { extensions.insert("actor_home_dir".into(), Value::String(s.to_string())); } }
+    if let Some(s) = data_val.get("shell").and_then(Value::as_str) { if !s.is_empty() { extensions.insert("actor_shell".into(),    Value::String(s.to_string())); } }
 
     // ── AWS CloudTrail / AWS integration (data.aws.*) ─────────────────────
     // Natively extracted — no field_mappings.toml entry required.
@@ -416,6 +455,7 @@ pub(crate) fn transform(
 
         // Event / request metadata
         aws_ext!("eventID",                  "aws_event_id");
+        aws_ext!("eventTime",                "aws_event_time");
         aws_ext!("requestID",                "aws_request_id");
         aws_ext!("awsRegion",                "aws_region");
         aws_ext!("userAgent",                "aws_user_agent");
@@ -439,6 +479,29 @@ pub(crate) fn transform(
             uid_ext!("invokedBy",   "aws_invoked_by");
             uid_ext!("accessKeyId", "aws_access_key_id");
             uid_ext!("credentialId","aws_credential_id");
+
+            // sessionContext sub-fields (role assumption, MFA, federation)
+            if let Some(sc) = uid.get("sessionContext").and_then(Value::as_object) {
+                // actor_user fallback: role ARN from sessionIssuer when userIdentity.arn is absent
+                if actor_user.is_empty() {
+                    if let Some(si) = sc.get("sessionIssuer").and_then(Value::as_object) {
+                        let v = aws_str!(si, "arn");
+                        if !v.is_empty() { actor_user = v.to_string(); }
+                    }
+                }
+                if let Some(si) = sc.get("sessionIssuer").and_then(Value::as_object) {
+                    let v = aws_str!(si, "type");        if !v.is_empty() { extensions.insert("aws_session_issuer_type".into(),    Value::String(v.to_string())); }
+                    let v = aws_str!(si, "principalId"); if !v.is_empty() { extensions.insert("aws_session_principal_id".into(),   Value::String(v.to_string())); }
+                    let v = aws_str!(si, "accountId");   if !v.is_empty() { extensions.insert("aws_session_issuer_account".into(), Value::String(v.to_string())); }
+                }
+                if let Some(attrs) = sc.get("attributes").and_then(Value::as_object) {
+                    let v = aws_str!(attrs, "mfaAuthenticated"); if !v.is_empty() { extensions.insert("aws_session_mfa_auth".into(),    Value::String(v.to_string())); }
+                    let v = aws_str!(attrs, "creationDate");     if !v.is_empty() { extensions.insert("aws_session_created_at".into(), Value::String(v.to_string())); }
+                }
+                if let Some(wif) = sc.get("webIdFederationData").and_then(Value::as_object) {
+                    let v = aws_str!(wif, "federatedProvider"); if !v.is_empty() { extensions.insert("aws_federated_provider".into(), Value::String(v.to_string())); }
+                }
+            }
         }
 
         // additionalEventData sub-fields
@@ -449,11 +512,12 @@ pub(crate) fn transform(
                     if !_v.is_empty() { extensions.insert($ext.into(), Value::String(_v.to_string())); }
                 };
             }
-            aed_ext!("MFAUsed",        "aws_mfa_used");
-            aed_ext!("CredentialType", "aws_credential_type");
-            aed_ext!("AuthWorkflowID", "aws_auth_workflow_id");
-            aed_ext!("MobileVersion",  "aws_mobile_version");
-            aed_ext!("keyMaterialId",  "aws_key_material_id");
+            aed_ext!("MFAUsed",         "aws_mfa_used");
+            aed_ext!("MFAIdentifier",   "aws_mfa_identifier");
+            aed_ext!("CredentialType",  "aws_credential_type");
+            aed_ext!("AuthWorkflowID",  "aws_auth_workflow_id");
+            aed_ext!("MobileVersion",   "aws_mobile_version");
+            aed_ext!("keyMaterialId",   "aws_key_material_id");
         }
 
         // tlsDetails sub-fields
@@ -482,10 +546,24 @@ pub(crate) fn transform(
             res_ext!("accountId", "aws_resource_account_id");
         }
 
-        // requestParameters.keyId (KMS key ARN used for encryption operations)
+        // requestParameters sub-fields (KMS, EC2, and other CloudTrail operations)
         if let Some(rp) = aws.get("requestParameters").and_then(Value::as_object) {
-            let v = aws_str!(rp, "keyId");
-            if !v.is_empty() { extensions.insert("aws_kms_key_id".into(), Value::String(v.to_string())); }
+            let v = aws_str!(rp, "keyId");             if !v.is_empty() { extensions.insert("aws_kms_key_id".into(),               Value::String(v.to_string())); }
+            let v = aws_str!(rp, "networkInterfaceId"); if !v.is_empty() { extensions.insert("aws_req_network_interface_id".into(), Value::String(v.to_string())); }
+            let v = aws_str!(rp, "groupId");           if !v.is_empty() { extensions.insert("aws_req_security_group_id".into(),    Value::String(v.to_string())); }
+            let v = aws_str!(rp, "subnetId");          if !v.is_empty() { extensions.insert("aws_req_subnet_id".into(),            Value::String(v.to_string())); }
+            let v = aws_str!(rp, "snapshotId");        if !v.is_empty() { extensions.insert("aws_req_snapshot_id".into(),          Value::String(v.to_string())); }
+            let v = aws_str!(rp, "volumeId");          if !v.is_empty() { extensions.insert("aws_req_volume_id".into(),            Value::String(v.to_string())); }
+            let v = aws_str!(rp, "allocationId");      if !v.is_empty() { extensions.insert("aws_req_allocation_id".into(),        Value::String(v.to_string())); }
+        }
+
+        // responseElements sub-fields (EC2 resource creation / modification results)
+        if let Some(re) = aws.get("responseElements").and_then(Value::as_object) {
+            let v = aws_str!(re, "publicIp");          if !v.is_empty() { extensions.insert("aws_res_public_ip".into(),              Value::String(v.to_string())); }
+            let v = aws_str!(re, "networkInterfaceId"); if !v.is_empty() { extensions.insert("aws_res_network_interface_id".into(),  Value::String(v.to_string())); }
+            let v = aws_str!(re, "allocationId");      if !v.is_empty() { extensions.insert("aws_res_allocation_id".into(),         Value::String(v.to_string())); }
+            let v = aws_str!(re, "snapshotId");        if !v.is_empty() { extensions.insert("aws_res_snapshot_id".into(),           Value::String(v.to_string())); }
+            let v = aws_str!(re, "volumeId");          if !v.is_empty() { extensions.insert("aws_res_volume_id".into(),             Value::String(v.to_string())); }
         }
 
         // serviceEventDetails sub-fields
