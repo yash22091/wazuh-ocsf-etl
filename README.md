@@ -147,7 +147,7 @@ Each table uses:
 - `index_granularity = 4096` — finer granules for better skip-index selectivity
 - Bloom-filter skip indexes on IPs, users, hostnames, filenames, URLs
 - `minmax` skip indexes on `severity_id`, `class_uid`, `type_uid`, `http_status`
-- Automatic TTL via `DATA_TTL_DAYS` (default 90 days)
+- Optional TTL via `DATA_TTL_DAYS` (disabled by default — keeps all logs forever)
 
 ---
 
@@ -176,7 +176,7 @@ $EDITOR .env
 | `FLUSH_INTERVAL_SECS` | `5` | Also flush on a timer when batch not yet full (low-EPS safety net) |
 | `CHANNEL_CAP` | `50000` | Internal async queue depth between reader and writer (~1 KB/slot, ≈50 MB) |
 | `SPECIAL_LOCATIONS` | *(empty)* | Comma-separated location names routed to shared tables |
-| `DATA_TTL_DAYS` | `90` | Delete rows older than N days (empty = keep forever) |
+| `DATA_TTL_DAYS` | *(empty)* | **Optional:** Delete rows older than N days. Empty (default) = keep all logs forever |
 | `STORE_RAW_DATA` | `true` | Store the full raw Wazuh alert JSON in `raw_data`. Set `false` to skip it — saves 40–70% table size with no loss of structured data |
 | `UNMAPPED_FIELDS_FILE` | `state/unmapped_fields.json` | JSON report of `data.*` fields not yet mapped to OCSF columns — updated on every flush. See [11](#11-unmapped-field-discovery). |
 | `OCSF_VALIDATE` | `true` | Run OCSF 1.7.0 schema checks after every transform. Violations are logged at `WARN` level — events are **always** forwarded to ClickHouse. Set `false` to disable during load testing. See [18](#18-ocsf-schema-validation). |
@@ -190,7 +190,7 @@ CLICKHOUSE_DATABASE=wazuh_ocsf
 CLICKHOUSE_USER=wazuh_etl
 CLICKHOUSE_PASSWORD=strongpassword
 ALERTS_FILE=/var/ossec/logs/alerts/alerts.json
-DATA_TTL_DAYS=180
+# DATA_TTL_DAYS=180  # Uncomment to enable automatic deletion of old logs
 ```
 
 ### `config/field_mappings.toml`
@@ -1429,7 +1429,7 @@ CLICKHOUSE_USER=wazuh_etl
 CLICKHOUSE_PASSWORD=strongpassword
 ALERTS_FILE=/var/ossec/logs/alerts/alerts.json
 STATE_FILE=/opt/wazuh-ocsf-wazuh-master/state/alerts.pos
-DATA_TTL_DAYS=180
+# DATA_TTL_DAYS=180  # Uncomment to enable automatic deletion of old logs
 ```
 
 > `STATE_FILE` **must** stay on the local node — it tracks the byte offset into that node's own `alerts.json` and has no meaning on any other node.

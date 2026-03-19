@@ -75,9 +75,14 @@ impl AppConfig {
             ),
             special_locations,
             data_ttl_days: std::env::var("DATA_TTL_DAYS").ok().and_then(|s| {
-                s.trim().parse::<u32>().map_err(|e| {
-                    warn!("DATA_TTL_DAYS={s:?} is not a valid integer ({e}) — TTL disabled");
-                }).ok()
+                let trimmed = s.trim();
+                if trimmed.is_empty() {
+                    None  // Intentionally empty — no warning needed
+                } else {
+                    trimmed.parse::<u32>().map_err(|e| {
+                        warn!("DATA_TTL_DAYS={s:?} is not a valid integer ({e}) — TTL disabled");
+                    }).ok()
+                }
             }),
             seek_to_end_on_first_run: std::env::var("SEEK_TO_END_ON_FIRST_RUN")
                 .map(|v| !matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no"))
