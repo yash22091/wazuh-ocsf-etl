@@ -412,6 +412,10 @@ async fn main() -> Result<()> {
                                 }
                             };
                             transform(&raw, &cfg.clickhouse_db, &cfg.special_locations, &guard)
+                                .map(|(tbl, mut rec)| {
+                                    if !cfg.store_raw_data { rec.raw_data = String::new(); }
+                                    (tbl, rec)
+                                })
                         };
                         if let Some((table, record)) = record_opt {
                             let bucket = batches.entry(table.clone()).or_default();

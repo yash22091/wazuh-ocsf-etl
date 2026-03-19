@@ -264,6 +264,11 @@ CHANNEL_CAP=50000
 # Delete rows older than N days (leave empty to keep forever)
 DATA_TTL_DAYS=90
 
+# ── Raw data storage ──────────────────────────────────────────────
+# true  = store the full raw Wazuh alert JSON in raw_data (default)
+# false = write empty string — saves 40-70% table size, no data loss
+STORE_RAW_DATA=true
+
 # ── OCSF schema validation ────────────────────────────────────────
 # Set false during load testing to skip per-event validation
 OCSF_VALIDATE=true

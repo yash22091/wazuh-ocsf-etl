@@ -40,6 +40,9 @@ pub(crate) struct AppConfig {
     pub(crate) input_mode:               InputMode,
     pub(crate) zeromq_uri:               String,
     pub(crate) unmapped_fields_file:     PathBuf,
+    /// When false the raw_data column is stored as an empty string.
+    /// Saves significant storage (raw JSON can be 2-20 KB per event).
+    pub(crate) store_raw_data:           bool,
 }
 
 impl AppConfig {
@@ -97,6 +100,9 @@ impl AppConfig {
                 std::env::var("UNMAPPED_FIELDS_FILE")
                     .unwrap_or_else(|_| "state/unmapped_fields.json".into()),
             ),
+            store_raw_data: std::env::var("STORE_RAW_DATA")
+                .map(|v| !matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no"))
+                .unwrap_or(true),
         }
     }
 }

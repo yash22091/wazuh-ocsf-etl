@@ -177,6 +177,7 @@ $EDITOR .env
 | `CHANNEL_CAP` | `50000` | Internal async queue depth between reader and writer (~1 KB/slot, ≈50 MB) |
 | `SPECIAL_LOCATIONS` | *(empty)* | Comma-separated location names routed to shared tables |
 | `DATA_TTL_DAYS` | `90` | Delete rows older than N days (empty = keep forever) |
+| `STORE_RAW_DATA` | `true` | Store the full raw Wazuh alert JSON in `raw_data`. Set `false` to skip it — saves 40–70% table size with no loss of structured data |
 | `UNMAPPED_FIELDS_FILE` | `state/unmapped_fields.json` | JSON report of `data.*` fields not yet mapped to OCSF columns — updated on every flush. See [11](#11-unmapped-field-discovery). |
 | `OCSF_VALIDATE` | `true` | Run OCSF 1.7.0 schema checks after every transform. Violations are logged at `WARN` level — events are **always** forwarded to ClickHouse. Set `false` to disable during load testing. See [18](#18-ocsf-schema-validation). |
 | `RUST_LOG` | `info` | Log level: `error`, `warn`, `info`, `debug`, `trace` |

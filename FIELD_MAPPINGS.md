@@ -120,7 +120,7 @@ All columns that appear in **every** `wazuh_ocsf.ocsf_*` table.
 | — | **`event_data`** | `String` (JSON) | Full `data.*` subtree | ✅ yes |
 | — | **`extensions`** | `String` (JSON) | Custom + overflow fields | ✅ yes |
 | — | **`unmapped`** | `String` (JSON) | Unknown top-level keys | ✅ yes |
-| — | **`raw_data`** | `String` (JSON) | Full raw Wazuh alert | ✅ yes |
+| — | **`raw_data`** | `String` (JSON) | Full raw Wazuh alert (disable via `STORE_RAW_DATA=false`) | ✅ yes |
 
 ---
 
@@ -330,7 +330,7 @@ No data is ever dropped. Four additional columns capture everything not in a typ
 | `event_data` | Full `data.*` subtree from the Wazuh alert (raw vendor fields, JSON string) |
 | `extensions` | Custom-mapped extras + predefined sub-fields (see 4) |
 | `unmapped` | Unknown top-level JSON keys from the Wazuh alert (rarely populated) |
-| `raw_data` | The complete original Wazuh JSON alert line |
+| `raw_data` | The complete original Wazuh JSON alert line. Disabled (empty string) when `STORE_RAW_DATA=false` — all other columns are unaffected |
 
 ---
 
