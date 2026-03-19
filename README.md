@@ -88,8 +88,13 @@ A full GitHub search across `wazuh+ocsf+clickhouse`, `siem+ocsf+clickhouse`, and
 |---|---|---|
 | **Rust toolchain** | 1.75+ stable | Only for building; not needed at runtime |
 | **ClickHouse** | 22.x+ | HTTP interface must be reachable |
-| **Wazuh manager** | 4.x | Needs `alerts.json` enabled |
+| **Wazuh manager** | 4.x | Needs `alerts.json` enabled (for FILE mode) or ZeroMQ support (for ZEROMQ mode — see below) |
 | **OS** | Linux x86_64 | Tested on Ubuntu 22.04 / RHEL 9 |
+
+**ZeroMQ mode prerequisites (OPTIONAL — only needed if using `INPUT_MODE=zeromq`):**
+- Wazuh manager **must be built from source** with `USE_ZEROMQ=yes` flag
+- Default binary packages from Wazuh repositories **DO NOT** include ZeroMQ support
+- System must have `libzmq` development libraries installed before building Wazuh
 
 Enable JSON alerts in Wazuh if not already on:
 
@@ -355,6 +360,45 @@ INFO wazuh_ocsf_etl: pipeline running — awaiting alerts …
 
 ## 6. ZeroMQ input mode (zero disk I/O)
 
+> **CRITICAL PREREQUISITE:** ZeroMQ support is **NOT included** in the default Wazuh binary packages distributed via the official repositories. To use this mode, you **MUST** build Wazuh manager from source with the `USE_ZEROMQ=yes` compile flag.
+
+### Prerequisites for ZeroMQ mode
+
+**Building Wazuh with ZeroMQ support:**
+
+1. **Install ZeroMQ development libraries** on the system where you will build Wazuh:
+   ```bash
+   # Debian/Ubuntu
+   sudo apt-get install libzmq3-dev
+   
+   # RHEL/CentOS
+   sudo yum install zeromq-devel
+   ```
+
+2. **Build Wazuh from source** with ZeroMQ enabled:
+   ```bash
+   # Clone Wazuh sources
+   git clone https://github.com/wazuh/wazuh.git
+   cd wazuh/src
+   
+   # Install build dependencies
+   make deps
+   
+   # Build manager with ZeroMQ support
+   make TARGET=server USE_ZEROMQ=yes
+   
+   # Install
+   sudo USER_DIR=/var/ossec ./install.sh
+   ```
+
+> **Why this is required:** Wazuh's default binary packages (`.deb`, `.rpm`) are built **without** ZeroMQ support to minimize dependencies. The `USE_ZEROMQ` flag is a compile-time option that links `libzmq` into the `wazuh-analysisd` binary. Without this, the `<zeromq_output>` and `<zeromq_uri>` configuration options are ignored, and the manager will not publish alerts to a ZeroMQ socket.
+
+> **Verification:** After building and installing, check that ZeroMQ support is compiled in:
+> ```bash
+> strings /var/ossec/bin/wazuh-analysisd | grep -i zeromq
+> # Should show "zeromq_output", "zeromq_uri", and related strings
+> ```
+
 ### What it is
 
 Instead of reading `alerts.json` from disk, the pipeline subscribes directly to the ZeroMQ PUB socket that `wazuh-analysisd` publishes every alert to — the moment it is generated, before it is even written to `alerts.json`.
@@ -381,6 +425,8 @@ ZEROMQ mode: analysisd ───────────────────
 
 ### Step 1 — Enable ZeroMQ on the Wazuh manager
 
+**IMPORTANT:** This step assumes you have already built and installed Wazuh with `USE_ZEROMQ=yes` as described in the prerequisites above. If you installed Wazuh from the official binary packages, these configuration options will be **silently ignored** and the manager will not publish alerts to ZeroMQ.
+
 ```xml
 <!-- /var/ossec/etc/ossec.conf on the Wazuh manager -->
 <global>
@@ -393,8 +439,15 @@ ZEROMQ mode: analysisd ───────────────────
 
 ```bash
 systemctl restart wazuh-manager
+
 # Verify: should see "ZeroMQ output enabled" in /var/ossec/logs/ossec.log
 grep -i zeromq /var/ossec/logs/ossec.log | tail -5
+
+# Expected output if ZeroMQ is working:
+# 2026/03/19 10:00:00 wazuh-analysisd: INFO: ZeroMQ output enabled.
+# 2026/03/19 10:00:00 wazuh-analysisd: INFO: ZeroMQ publisher socket bound to tcp://0.0.0.0:11111/
+
+# If you see NO output, ZeroMQ support was not compiled in — rebuild from source with USE_ZEROMQ=yes
 ```
 
 ### Step 2 — Configure this pipeline
@@ -426,9 +479,10 @@ journalctl -u wazuh-ocsf-etl -f
 | Situation | Recommendation |
 |---|---|
 | Standard single-machine deployment | `INPUT_MODE=file` (default) — simpler, no Wazuh config change |
-| High EPS (>5000/sec), need lowest latency | `INPUT_MODE=zeromq` |
-| Pipeline on a separate machine from Wazuh | `INPUT_MODE=zeromq` — file mode can't work remotely |
-| Wazuh manager doesn't support ZeroMQ output | `INPUT_MODE=file` |
+| High EPS (>5000/sec), need lowest latency | `INPUT_MODE=zeromq` (requires Wazuh built from source with `USE_ZEROMQ=yes`) |
+| Pipeline on a separate machine from Wazuh | `INPUT_MODE=zeromq` — file mode can't work remotely (requires Wazuh built from source with `USE_ZEROMQ=yes`) |
+| **Wazuh installed from binary packages** (.deb/.rpm) | **`INPUT_MODE=file` ONLY** — binary packages do NOT include ZeroMQ support |
+| Wazuh manager built from source without `USE_ZEROMQ=yes` | `INPUT_MODE=file` |
 | Want historical backfill of existing alerts.json | `INPUT_MODE=file` with `SEEK_TO_END_ON_FIRST_RUN=false` |
 
 > **Note — delivery guarantee:** ZeroMQ PUB/SUB is **at-most-once**. If ClickHouse is slow and the pipeline's internal channel fills, ZeroMQ's per-subscriber send buffer overflows and messages are **silently dropped** — they cannot be recovered. FILE mode is **at-least-once** (the channel blocks the reader; nothing is dropped). Prefer FILE mode for any deployment where zero data loss matters.

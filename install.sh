@@ -235,14 +235,16 @@ CLICKHOUSE_USER=default
 CLICKHOUSE_PASSWORD=
 
 # ── Input source ──────────────────────────────────────────────────
-# file   — read alerts.json from disk (default)
+# file   — read alerts.json from disk (default — works with any Wazuh install)
 # zeromq — subscribe to wazuh-analysisd ZeroMQ PUB socket (no disk I/O)
+#          REQUIRES Wazuh manager built from source with USE_ZEROMQ=yes
+#          NOT available in default Wazuh binary packages (.deb/.rpm)
 INPUT_MODE=file
 
 # Path to Wazuh alerts JSON (FILE mode only)
 ALERTS_FILE=/var/ossec/logs/alerts/alerts.json
 
-# ZeroMQ URI (ZEROMQ mode only)
+# ZeroMQ URI (ZEROMQ mode only — see README for prerequisites)
 # ZEROMQ_URI=tcp://localhost:11111
 
 # ── State / config ────────────────────────────────────────────────
