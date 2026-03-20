@@ -1,0 +1,12 @@
+[alias]
+ci = "clippy --all-targets -- -D warnings"
+
+[build]
+rustflags = ["-D", "warnings"]
+
+[env]
+RUST_BACKTRACE = "1"
+
+[net]
+retry = 3
+git-fetch-with-cli = true
