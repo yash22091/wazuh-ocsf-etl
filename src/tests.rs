@@ -1,9 +1,13 @@
-use crate::classify::{classify_event, map_severity};
 use crate::config::CustomMappings;
-use crate::field_paths::{BYTES_IN, BYTES_OUT};
-use crate::json::{first_port, first_str, first_u64, flatten_to_paths, get_data_field, jpath};
-use crate::transform::{routing_table, transform};
-use crate::unmapped::{track_unmapped_fields, write_unmapped_report, FieldInfo, UNMAPPED_TRACKER};
+use crate::pipeline::classify::{classify_event, map_severity};
+use crate::pipeline::field_paths::{BYTES_IN, BYTES_OUT};
+use crate::pipeline::transform::{routing_table, transform};
+use crate::util::json::{
+    first_port, first_str, first_u64, flatten_to_paths, get_data_field, jpath,
+};
+use crate::util::unmapped::{
+    track_unmapped_fields, write_unmapped_report, FieldInfo, UNMAPPED_TRACKER,
+};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -16,14 +20,14 @@ fn no_custom() -> CustomMappings {
 #[test]
 fn sanitize_path() {
     assert_eq!(
-        crate::transform::sanitize_name("/var/log/auth.log"),
+        crate::pipeline::transform::sanitize_name("/var/log/auth.log"),
         "var_log_auth_log"
     );
 }
 #[test]
 fn sanitize_dashes_dots() {
     assert_eq!(
-        crate::transform::sanitize_name("agent-01.corp.local"),
+        crate::pipeline::transform::sanitize_name("agent-01.corp.local"),
         "agent_01_corp_local"
     );
 }
@@ -1532,7 +1536,7 @@ fn ocsf_validator_passes_on_valid_record() {
         "decoder":{"name":"sshd"}
     }"#;
     let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-    let violations = crate::validator::validate_ocsf_record(&rec);
+    let violations = crate::pipeline::validator::validate_ocsf_record(&rec);
     assert!(
         violations.is_empty(),
         "valid sshd auth record must have 0 OCSF violations, got: {violations:?}"
@@ -1574,7 +1578,7 @@ fn ocsf_validator_all_classes_produce_zero_violations() {
         );
         let (_, rec) = transform(&raw, "db", &[], &no_custom())
             .unwrap_or_else(|| panic!("transform failed for decoder={decoder}"));
-        let violations = crate::validator::validate_ocsf_record(&rec);
+        let violations = crate::pipeline::validator::validate_ocsf_record(&rec);
         assert!(
             violations.is_empty(),
             "decoder={decoder} groups={groups_json} → violations: {violations:?}"
@@ -1666,7 +1670,7 @@ fn transform_deeply_nested_json_no_stackoverflow() {
 #[test]
 fn sanitize_very_long_agent_name_truncated_to_200() {
     let long = "a".repeat(300);
-    let tbl = crate::transform::routing_table("db", &long, "", &[]);
+    let tbl = crate::pipeline::transform::routing_table("db", &long, "", &[]);
     // table name part (after "db.ocsf_") must be ≤ 200 chars
     let tbl_part = tbl.strip_prefix("db.ocsf_").unwrap_or(&tbl);
     assert!(
@@ -1717,7 +1721,7 @@ fn transform_vuln_detector_full() {
     assert_eq!(rec.status, "Active");
     assert_eq!(rec.url, "https://nvd.nist.gov/vuln/detail/CVE-2024-99999");
     // OCSF validity
-    let violations = crate::validator::validate_ocsf_record(&rec);
+    let violations = crate::pipeline::validator::validate_ocsf_record(&rec);
     assert!(
         violations.is_empty(),
         "vuln record must pass OCSF validation: {violations:?}"
@@ -1729,8 +1733,8 @@ fn transform_vuln_detector_full() {
 #[test]
 fn state_store_save_and_load_roundtrip() {
     let tmp = std::env::temp_dir().join("wazuh_ocsf_state_test.pos");
-    let store = crate::state::StateStore::new(tmp.clone());
-    let saved = crate::state::TailState {
+    let store = crate::input::state::StateStore::new(tmp.clone());
+    let saved = crate::input::state::TailState {
         inode: 12345678,
         offset: 999999,
     };
@@ -1745,7 +1749,7 @@ fn state_store_save_and_load_roundtrip() {
 fn state_store_missing_file_returns_defaults() {
     let tmp = std::env::temp_dir().join("wazuh_ocsf_state_nonexistent_xyz.pos");
     let _ = std::fs::remove_file(&tmp); // ensure it doesn't exist
-    let store = crate::state::StateStore::new(tmp);
+    let store = crate::input::state::StateStore::new(tmp);
     let s = store.load();
     assert_eq!(s.inode, 0, "missing state file → inode=0");
     assert_eq!(s.offset, 0, "missing state file → offset=0");
@@ -1755,7 +1759,7 @@ fn state_store_missing_file_returns_defaults() {
 fn state_store_corrupt_file_returns_defaults() {
     let tmp = std::env::temp_dir().join("wazuh_ocsf_state_corrupt.pos");
     std::fs::write(&tmp, "not_valid_key_value_format\nbinary\x01data").unwrap();
-    let store = crate::state::StateStore::new(tmp.clone());
+    let store = crate::input::state::StateStore::new(tmp.clone());
     let s = store.load();
     // Corrupt data → should not panic, returns 0/0 or partial parse
     assert!(s.inode < u64::MAX, "must not panic on corrupt state");

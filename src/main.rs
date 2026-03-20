@@ -30,18 +30,11 @@
 //!   OCSF_VALIDATE         true (set to false to disable schema validation)
 
 // ── Modules ───────────────────────────────────────────────────────────────────
-mod classify;
 mod config;
-mod db;
-mod field_paths;
-mod json;
-mod record;
-mod state;
-mod tailer;
-mod transform;
-mod unmapped;
-mod validator;
-mod zmq;
+mod input;
+mod output;
+mod pipeline;
+mod util;
 
 // ── Standard library ──────────────────────────────────────────────────────────
 use std::collections::{HashMap, HashSet};
@@ -61,13 +54,13 @@ use tracing::{debug, error, info, trace, warn};
 
 // ── Module imports ────────────────────────────────────────────────────────────
 use config::{AppConfig, CustomMappings, InputMode, CONFIG_POLL_SECS};
-use db::{ensure_custom_columns, flush_all, BatchMap};
-use state::{StateStore, TailState};
-use tailer::reader_task;
-use transform::transform;
-use unmapped::{archive_unmapped_report, write_unmapped_report};
-use validator::OCSF_VALIDATE;
-use zmq::zmq_reader_task;
+use input::state::{StateStore, TailState};
+use input::tailer::reader_task;
+use input::zmq::zmq_reader_task;
+use output::db::{ensure_custom_columns, flush_all, BatchMap};
+use pipeline::transform::transform;
+use pipeline::validator::OCSF_VALIDATE;
+use util::unmapped::{archive_unmapped_report, write_unmapped_report};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use tracing::warn;
 
-use crate::record::OcsfRecord;
+use super::record::OcsfRecord;
 
 // ─── OCSF 1.7.0 schema validator ─────────────────────────────────────────────
 //

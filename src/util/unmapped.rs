@@ -6,14 +6,14 @@ use once_cell::sync::Lazy;
 use serde_json::Value;
 use tracing::{info, warn};
 
+use super::json::flatten_to_paths;
 use crate::config::CustomMappings;
-use crate::field_paths::{
+use crate::pipeline::field_paths::{
     ACTION, ACTOR_USER, APP_NAME, BYTES_IN, BYTES_OUT, CATEGORY, DOMAIN, DST_HOSTNAME, DST_IP,
     DST_PORT, FILE_NAME, HTTP_METHOD, HTTP_STATUS, IFACE_IN, IFACE_OUT, NAT_DST_IP, NAT_DST_PORT,
     NAT_SRC_IP, NAT_SRC_PORT, PROCESS_ID, PROCESS_NAME, PROTOCOL, RULE_NAME, SRC_HOSTNAME, SRC_IP,
     SRC_PORT, STATUS, TARGET_USER, URL,
 };
-use crate::json::flatten_to_paths;
 
 // ─── Unmapped-field discovery ─────────────────────────────────────────────────
 

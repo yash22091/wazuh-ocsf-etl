@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use clickhouse::Client;
 use tracing::{debug, error, info, trace};
 
-use crate::record::OcsfRecord;
+use crate::pipeline::record::OcsfRecord;
 
 // ─── Batch / flush ────────────────────────────────────────────────────────────
 

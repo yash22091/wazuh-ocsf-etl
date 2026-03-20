@@ -9,7 +9,7 @@ use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader as TokioBufReader};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::state::TailState;
+use super::state::TailState;
 
 // ─── File tailer ──────────────────────────────────────────────────────────────
 

@@ -4,18 +4,18 @@ use regex::Regex;
 use serde_json::{Map, Value};
 use tracing::debug;
 
-use crate::classify::{classify_event, map_severity};
-use crate::config::CustomMappings;
-use crate::field_paths::{
+use super::classify::{classify_event, map_severity};
+use super::field_paths::{
     ACTION, ACTOR_USER, APP_NAME, BYTES_IN, BYTES_OUT, CATEGORY, DOMAIN, DST_HOSTNAME, DST_IP,
     DST_PORT, FILE_NAME, HTTP_METHOD, HTTP_STATUS, IFACE_IN, IFACE_OUT, NAT_DST_IP, NAT_DST_PORT,
     NAT_SRC_IP, NAT_SRC_PORT, PROCESS_ID, PROCESS_NAME, PROTOCOL, RULE_NAME, SRC_HOSTNAME, SRC_IP,
     SRC_PORT, STATUS, TARGET_USER, URL,
 };
-use crate::json::{first_port, first_str, first_u64, get_data_field, jpath};
-use crate::record::OcsfRecord;
-use crate::unmapped::track_unmapped_fields;
-use crate::validator::check_and_warn;
+use super::record::OcsfRecord;
+use super::validator::check_and_warn;
+use crate::config::CustomMappings;
+use crate::util::json::{first_port, first_str, first_u64, get_data_field, jpath};
+use crate::util::unmapped::track_unmapped_fields;
 
 // ─── Sanitise / route ─────────────────────────────────────────────────────────
 
