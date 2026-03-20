@@ -10,19 +10,23 @@ use crate::record::OcsfRecord;
 
 pub(crate) type BatchMap = HashMap<String, Vec<OcsfRecord>>;
 
-async fn insert_batch(
-    client:  &Client,
-    table:   &str,
-    records: Vec<OcsfRecord>,
-) -> Result<()> {
-    if records.is_empty() { return Ok(()); }
+async fn insert_batch(client: &Client, table: &str, records: Vec<OcsfRecord>) -> Result<()> {
+    if records.is_empty() {
+        return Ok(());
+    }
     debug!(table, rows = records.len(), "insert_batch: sending");
-    let mut ins = client.insert::<OcsfRecord>(table)
+    let mut ins = client
+        .insert::<OcsfRecord>(table)
+        .await
         .with_context(|| format!("open insert for {table}"))?;
     for rec in &records {
-        ins.write(rec).await.with_context(|| format!("write row → {table}"))?;
+        ins.write(rec)
+            .await
+            .with_context(|| format!("write row → {table}"))?;
     }
-    ins.end().await.with_context(|| format!("end insert → {table}"))?;
+    ins.end()
+        .await
+        .with_context(|| format!("end insert → {table}"))?;
     Ok(())
 }
 
@@ -32,13 +36,15 @@ async fn insert_batch(
 /// Returns the names of columns that were successfully applied so callers can
 /// track which ones still need to be retried.
 pub(crate) async fn ensure_custom_columns(
-    url:      &str,
-    user:     &str,
+    url: &str,
+    user: &str,
     password: &str,
-    table:    &str,
-    columns:  &[String],
+    table: &str,
+    columns: &[String],
 ) -> Vec<String> {
-    if columns.is_empty() { return Vec::new(); }
+    if columns.is_empty() {
+        return Vec::new();
+    }
     // Reject malformed table identifiers early — routing_table() always
     // produces "db.tbl" so this guard only fires on programmer error.
     let (db_part, tbl_part) = match table.split_once('.') {
@@ -57,10 +63,19 @@ pub(crate) async fn ensure_custom_columns(
         // Sanitize: only alphanumeric + underscore to prevent SQL injection.
         // Single-quoted '{safe}' inside the DDL is safe because this
         // character class excludes all SQL metacharacters.
-        let safe: String = col.chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        let safe: String = col
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
-        if safe.is_empty() { continue; }
+        if safe.is_empty() {
+            continue;
+        }
         let ddl = format!(
             "ALTER TABLE `{db_part}`.`{tbl_part}` \
              ADD COLUMN IF NOT EXISTS `{safe}` String \
@@ -81,15 +96,15 @@ pub(crate) async fn ensure_custom_columns(
 }
 
 pub(crate) async fn flush_all(
-    client:       &Client,
-    url:          &str,
-    user:         &str,
-    password:     &str,
-    db:           &str,
-    ttl_days:     Option<u32>,
-    batches:      &mut BatchMap,
+    client: &Client,
+    url: &str,
+    user: &str,
+    password: &str,
+    db: &str,
+    ttl_days: Option<u32>,
+    batches: &mut BatchMap,
     known_tables: &mut HashSet<String>,
-    custom_cols:  &[String],
+    custom_cols: &[String],
 ) {
     let work: Vec<(String, Vec<OcsfRecord>)> = batches
         .iter_mut()
@@ -108,7 +123,7 @@ pub(crate) async fn flush_all(
     for (table, records) in work {
         if !known_tables.contains(&table) {
             match ensure_table(client, url, user, password, db, &table, ttl_days).await {
-                Ok(_)  => {
+                Ok(_) => {
                     known_tables.insert(table.clone());
                     info!("table ready: {table}");
                     if !custom_cols.is_empty() {
@@ -119,12 +134,15 @@ pub(crate) async fn flush_all(
                         ensure_custom_columns(url, user, password, &table, custom_cols).await;
                     }
                 }
-                Err(e) => { error!("ensure_table {table}: {e:#}"); continue; }
+                Err(e) => {
+                    error!("ensure_table {table}: {e:#}");
+                    continue;
+                }
             }
         }
         let n = records.len();
         match insert_batch(client, &table, records).await {
-            Ok(_)  => info!(rows = n, table = %table, "flush ok"),
+            Ok(_) => info!(rows = n, table = %table, "flush ok"),
             Err(e) => error!(table = %table, "insert failed: {e:#}"),
         }
     }
@@ -133,12 +151,12 @@ pub(crate) async fn flush_all(
 // ─── ClickHouse DDL ───────────────────────────────────────────────────────────
 
 pub(crate) async fn ensure_table(
-    _client:  &Client,
-    url:      &str,
-    user:     &str,
+    _client: &Client,
+    url: &str,
+    user: &str,
     password: &str,
-    db:       &str,
-    table:    &str,
+    db: &str,
+    table: &str,
     ttl_days: Option<u32>,
 ) -> Result<()> {
     let ddl_client = Client::default()
@@ -147,7 +165,8 @@ pub(crate) async fn ensure_table(
         .with_password(password);
     ddl_client
         .query(&format!("CREATE DATABASE IF NOT EXISTS `{db}`"))
-        .execute().await
+        .execute()
+        .await
         .with_context(|| format!("CREATE DATABASE {db}"))?;
 
     let ttl = ttl_days
@@ -156,7 +175,8 @@ pub(crate) async fn ensure_table(
 
     let (db_part, tbl_part) = table.split_once('.').unwrap_or((db, table));
 
-    let ddl = format!(r#"CREATE TABLE IF NOT EXISTS `{db_part}`.`{tbl_part}` (
+    let ddl = format!(
+        r#"CREATE TABLE IF NOT EXISTS `{db_part}`.`{tbl_part}` (
     `time`              DateTime                        CODEC(Delta(4), ZSTD(1)),
     `time_dt`           String                          CODEC(ZSTD(3)),
     `ocsf_version`      LowCardinality(String)          CODEC(ZSTD(1)),
@@ -251,9 +271,13 @@ ORDER BY (class_uid, device_name, time){ttl}
 SETTINGS
     index_granularity       = 4096,
     min_compress_block_size = 65536,
-    max_compress_block_size = 1048576"#);
+    max_compress_block_size = 1048576"#
+    );
 
-    ddl_client.query(&ddl).execute().await
+    ddl_client
+        .query(&ddl)
+        .execute()
+        .await
         .with_context(|| format!("CREATE TABLE {table}"))?;
 
     let migrations = [
@@ -267,7 +291,10 @@ SETTINGS
         format!("ALTER TABLE `{db_part}`.`{tbl_part}` ADD COLUMN IF NOT EXISTS `cvss_score`        Float32 DEFAULT 0.0 CODEC(ZSTD(1))"),
     ];
     for stmt in &migrations {
-        ddl_client.query(stmt).execute().await
+        ddl_client
+            .query(stmt)
+            .execute()
+            .await
             .with_context(|| format!("migration: {stmt}"))?;
     }
 
