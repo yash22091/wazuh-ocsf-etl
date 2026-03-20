@@ -46,23 +46,30 @@ Delivery semantics:
 
 ## Quick start
 
-1. Build
+1. Clone and enter the repo
+
+```bash
+git clone https://github.com/yash22091/wazuh-ocsf-etl.git
+cd wazuh-ocsf-etl
+```
+
+2. Build
 
 ```bash
 cargo build --release
 ```
 
-2. Install
+3. Install
 
 ```bash
 sudo ./install.sh ./target/release/wazuh-ocsf-etl
 ```
 
-3. Configure
+4. Configure
 
 Edit `/opt/wazuh-ocsf/.env` with your ClickHouse settings.
 
-4. Start
+5. Start
 
 ```bash
 systemctl start wazuh-ocsf-etl
