@@ -6,10 +6,20 @@
 
 pub(crate) const SRC_IP: &[&str] = &[
     // Generic syslog / OSSEC (256 decoders use srcip)
-    "srcip", "src_ip", "source_ip", "source_address", "sourceip", "sourceIpAddress",
-    "src", "ip", "IP",            // uppercase IP variant (some vendor decoders)
-    "client",                      // squid/proxy/proftpd: client = connecting source
-    "host_ip", "ip_address", "proxy_ip", "xff_address",
+    "srcip",
+    "src_ip",
+    "source_ip",
+    "source_address",
+    "sourceip",
+    "sourceIpAddress",
+    "src",
+    "ip",
+    "IP",     // uppercase IP variant (some vendor decoders)
+    "client", // squid/proxy/proftpd: client = connecting source
+    "host_ip",
+    "ip_address",
+    "proxy_ip",
+    "xff_address",
     // Lowercase variants seen across miscellaneous decoders
     "locip",         // pfSense/ipfw: local (source) IP
     "ipaddr",        // DHCP / keepalived
@@ -21,10 +31,13 @@ pub(crate) const SRC_IP: &[&str] = &[
     // Suricata / Snort
     "alert.src_ip",
     // Windows Event Channel
-    "win.eventdata.ipAddress", "win.eventdata.sourceAddress", "win.eventdata.IpAddress",
+    "win.eventdata.ipAddress",
+    "win.eventdata.sourceAddress",
+    "win.eventdata.IpAddress",
     // AWS CloudTrail / GuardDuty
-    "aws.sourceIPAddress", "aws.requestParameters.ipAddress",
-    "aws.source_ip_address",  // snake_case variant from Wazuh aws-cloudtrail decoder
+    "aws.sourceIPAddress",
+    "aws.requestParameters.ipAddress",
+    "aws.source_ip_address", // snake_case variant from Wazuh aws-cloudtrail decoder
     // AWS GuardDuty — network connection & port probe (deep nested)
     "aws.service.action.networkConnectionAction.remoteIpDetails.ipAddressV4",
     "aws.service.action.portProbeAction.portProbeDetails.remoteIpDetails.ipAddressV4",
@@ -39,7 +52,9 @@ pub(crate) const SRC_IP: &[&str] = &[
     // Okta System Log
     "okta.client.ipAddress",
     // Office365 — multiple IP field names across workloads (ClientIP = Exchange, ActorIpAddress = SharePoint/AzureAD)
-    "office365.ActorIpAddress", "office365.ClientIP", "office365.ClientIPAddress",
+    "office365.ActorIpAddress",
+    "office365.ClientIP",
+    "office365.ClientIPAddress",
     // GitHub audit
     "github.actor_ip",
     // Zeek/Bro network sensor
@@ -77,13 +92,20 @@ pub(crate) const SRC_IP: &[&str] = &[
 ];
 
 pub(crate) const DST_IP: &[&str] = &[
-    "dstip", "dst_ip", "dest_ip", "destination_ip", "destip", "dstname",
-    "destinationIpAddress", "destination_address",
+    "dstip",
+    "dst_ip",
+    "dest_ip",
+    "destination_ip",
+    "destip",
+    "dstname",
+    "destinationIpAddress",
+    "destination_address",
     "dst",
-    "dstcip",  // Cisco ASA: destination translated IP
-    "dhost",   // CEF/ArcSight destination host (IP)
+    "dstcip", // Cisco ASA: destination translated IP
+    "dhost",  // CEF/ArcSight destination host (IP)
     "alert.dest_ip",
-    "win.eventdata.destinationIp", "win.eventdata.DestinationIp",
+    "win.eventdata.destinationIp",
+    "win.eventdata.DestinationIp",
     // AWS VPC Flow Logs
     "dstAddr",
     // AWS GuardDuty — local (victim) IP
@@ -97,14 +119,17 @@ pub(crate) const DST_IP: &[&str] = &[
 ];
 
 pub(crate) const SRC_PORT: &[&str] = &[
-    "srcport", "src_port", "source_port",
+    "srcport",
+    "src_port",
+    "source_port",
     "locport",   // pfSense/ipfw: local (source) port
     "LocalPort", // Prelude sensor format
     "s_port",    // some syslog decoders
     "spt",       // CEF Source Port
     "sport",     // generic source port alias (haproxy, misc)
     "alert.src_port",
-    "win.eventdata.ipPort", "win.eventdata.IpPort",
+    "win.eventdata.ipPort",
+    "win.eventdata.IpPort",
     "cs2",
     // AWS VPC Flow Logs
     "srcPort",
@@ -119,12 +144,16 @@ pub(crate) const SRC_PORT: &[&str] = &[
 ];
 
 pub(crate) const DST_PORT: &[&str] = &[
-    "dstport", "dst_port", "dest_port", "destination_port",
+    "dstport",
+    "dst_port",
+    "dest_port",
+    "destination_port",
     "remport", // pfSense/ipfw: remote (destination) port
     "dpt",     // CEF Destination Port
     "dport",   // generic destination port alias (haproxy, misc)
     "alert.dest_port",
-    "win.eventdata.destinationPort", "win.eventdata.DestinationPort",
+    "win.eventdata.destinationPort",
+    "win.eventdata.DestinationPort",
     // AWS VPC Flow Logs
     "dstPort",
     // AWS GuardDuty — local (victim) port
@@ -138,7 +167,9 @@ pub(crate) const DST_PORT: &[&str] = &[
 ];
 
 pub(crate) const NAT_SRC_IP: &[&str] = &[
-    "nat_srcip", "nat_src_ip", "nat_source_ip",
+    "nat_srcip",
+    "nat_src_ip",
+    "nat_source_ip",
     // FortiGate: source NAT translated IP
     "transip",
     // PAN-OS
@@ -150,14 +181,19 @@ pub(crate) const NAT_SRC_IP: &[&str] = &[
 ];
 
 pub(crate) const NAT_DST_IP: &[&str] = &[
-    "nat_dstip", "nat_dst_ip", "nat_destination_ip",
-    "nat_dest_ip", "mapped_dst_ip",
+    "nat_dstip",
+    "nat_dst_ip",
+    "nat_destination_ip",
+    "nat_dest_ip",
+    "mapped_dst_ip",
     "xlatedst",    // Check Point / Juniper: translated destination IP
     "tran_dst_ip", // Cisco ASA / generic
 ];
 
 pub(crate) const NAT_SRC_PORT: &[&str] = &[
-    "nat_srcport", "nat_src_port", "nat_source_port",
+    "nat_srcport",
+    "nat_src_port",
+    "nat_source_port",
     // FortiGate: translated source port
     "transport",
     "mapped_src_port",
@@ -166,16 +202,22 @@ pub(crate) const NAT_SRC_PORT: &[&str] = &[
 ];
 
 pub(crate) const NAT_DST_PORT: &[&str] = &[
-    "nat_dstport", "nat_dst_port", "nat_destination_port",
-    "nat_dest_port", "mapped_dst_port",
+    "nat_dstport",
+    "nat_dst_port",
+    "nat_destination_port",
+    "nat_dest_port",
+    "mapped_dst_port",
     "xlatedport",    // Check Point / Juniper: translated destination port
     "tran_dst_port", // Cisco ASA / generic
 ];
 
 pub(crate) const PROTOCOL: &[&str] = &[
-    "protocol", "proto", "transport", "protocol_id",
-    "Protocol",         // uppercase variant (some vendor decoders)
-    "ip_protocol",      // IP protocol number (auditd, netfilter)
+    "protocol",
+    "proto",
+    "transport",
+    "protocol_id",
+    "Protocol",    // uppercase variant (some vendor decoders)
+    "ip_protocol", // IP protocol number (auditd, netfilter)
     "alert.proto",
     "win.eventdata.protocol",
     "network_forwarded_protocol",
@@ -189,7 +231,10 @@ pub(crate) const BYTES_IN: &[&str] = &[
     // FortiGate
     "rcvdbyte",
     // generic
-    "bytes_recv", "bytes_in", "bytesIn", "bytes",
+    "bytes_recv",
+    "bytes_in",
+    "bytesIn",
+    "bytes",
     // Case variants / other vendors
     "BytesReceived",     // Check Point / Cylance
     "bytes_received",    // pfSense / generic
@@ -198,15 +243,17 @@ pub(crate) const BYTES_IN: &[&str] = &[
     "aws.additionalEventData.bytesTransferredIn",
     // AWS VPC Flow — total bytes for the flow
     "aws.bytes",
-    "recv_bytes",        // generic received bytes (some syslog decoders)
+    "recv_bytes", // generic received bytes (some syslog decoders)
 ];
 
 pub(crate) const BYTES_OUT: &[&str] = &[
     // FortiGate
     "sentbyte",
     // generic
-    "bytes_sent", "bytes_out", "bytesOut",
-    "sent_bytes",        // explicit variant (some syslog decoders)
+    "bytes_sent",
+    "bytes_out",
+    "bytesOut",
+    "sent_bytes", // explicit variant (some syslog decoders)
     // Case variants / other vendors
     "BytesSent",         // Check Point / Cylance
     "bytes_from_client", // proxy / WAF logs (client → server = outbound)
@@ -216,31 +263,42 @@ pub(crate) const BYTES_OUT: &[&str] = &[
 
 pub(crate) const ACTOR_USER: &[&str] = &[
     // Generic (80 decoders use user/srcuser/username)
-    "srcuser", "src_user", "user", "username", "user_name", "source_user",
-    "account",           // generic account field
-    "admin",             // admin username field (some management decoders)
-    "userName", "userAccount",
-    "userid", "userID",      // lowercase / camelCase user-id variants
-    "LoggedUser",            // Check Point / Prelude: currently-logged-in user
-    "SourceUserName",        // Check Point R80 field name
-    "client_user",           // proxy / squid decoders
-    "database_user",         // MySQL / PostgreSQL audit
-    "ldap_data.Username",    // OpenLDAP decoder
+    "srcuser",
+    "src_user",
+    "user",
+    "username",
+    "user_name",
+    "source_user",
+    "account", // generic account field
+    "admin",   // admin username field (some management decoders)
+    "userName",
+    "userAccount",
+    "userid",
+    "userID",             // lowercase / camelCase user-id variants
+    "LoggedUser",         // Check Point / Prelude: currently-logged-in user
+    "SourceUserName",     // Check Point R80 field name
+    "client_user",        // proxy / squid decoders
+    "database_user",      // MySQL / PostgreSQL audit
+    "ldap_data.Username", // OpenLDAP decoder
     // auditd
-    "audit.acct", "audit.auid",
+    "audit.acct",
+    "audit.auid",
     // Common authlog / syslog user fields
-    "login",         // generic login name (sshd, PAM, ftpd)
-    "logname",       // syslog logname field (su, sudo)
-    "usrName",       // ArcSight / LEEF alternate casing
-    "xauthuser",     // VPN XAUTH / L2TP authenticated user
-    "account_name",  // Windows/LDAP account name
+    "login",                // generic login name (sshd, PAM, ftpd)
+    "logname",              // syslog logname field (su, sudo)
+    "usrName",              // ArcSight / LEEF alternate casing
+    "xauthuser",            // VPN XAUTH / L2TP authenticated user
+    "account_name",         // Windows/LDAP account name
     "subject.account_name", // Windows Security subject account (nested)
     // Windows — subject (the initiating service/process) or target account.
-    "win.eventdata.subjectUserName", "win.eventdata.SubjectUserName",
-    "win.eventdata.targetUserName",  "win.eventdata.TargetUserName",
+    "win.eventdata.subjectUserName",
+    "win.eventdata.SubjectUserName",
+    "win.eventdata.targetUserName",
+    "win.eventdata.TargetUserName",
     "win.eventdata.initiatorAccountName",
     // AWS
-    "aws.userIdentity.userName", "aws.userIdentity.principalId",
+    "aws.userIdentity.userName",
+    "aws.userIdentity.principalId",
     "aws.userIdentity.sessionContext.sessionIssuer.userName",
     // GCP
     "gcp.protoPayload.authenticationInfo.principalEmail",
@@ -279,11 +337,15 @@ pub(crate) const ACTOR_USER: &[&str] = &[
 ];
 
 pub(crate) const TARGET_USER: &[&str] = &[
-    "dstuser", "dst_user", "target_user", "destination_user",
+    "dstuser",
+    "dst_user",
+    "target_user",
+    "destination_user",
     "TargetUserName", // Check Point R80 / Windows camelCase variant
     "new_user",       // useradd / adduser decoders: the account being created
     "removed_user",   // userdel / account-removal decoders: account being deleted
-    "win.eventdata.targetUserName", "win.eventdata.TargetUserName",
+    "win.eventdata.targetUserName",
+    "win.eventdata.TargetUserName",
     "win.system.security.userID",
     // Windows Security — target account SID (for account-change and privilege events)
     "win.eventdata.targetUserSid",
@@ -292,11 +354,13 @@ pub(crate) const TARGET_USER: &[&str] = &[
 
 pub(crate) const DOMAIN: &[&str] = &[
     "domain",
-    "account_domain",        // Windows NTLM / LDAP domain name
-    "dntdom",                // CEF destination NT domain name
+    "account_domain",         // Windows NTLM / LDAP domain name
+    "dntdom",                 // CEF destination NT domain name
     "subject.account_domain", // Windows Security subject domain (nested)
-    "win.eventdata.subjectDomainName", "win.eventdata.SubjectDomainName",
-    "win.eventdata.targetDomainName",  "win.eventdata.TargetDomainName",
+    "win.eventdata.subjectDomainName",
+    "win.eventdata.SubjectDomainName",
+    "win.eventdata.targetDomainName",
+    "win.eventdata.TargetDomainName",
     "aws.userIdentity.accountId",
     // AWS CloudTrail — account ID in a different field for cross-account events
     "aws.recipientAccountId",
@@ -321,11 +385,13 @@ pub(crate) const DOMAIN: &[&str] = &[
 ];
 
 pub(crate) const URL: &[&str] = &[
-    "url", "uri", "request_uri",
+    "url",
+    "uri",
+    "request_uri",
     "URL", // uppercase variant (some CEF / HP ArcSight decoders)
     "win.eventdata.objectName",
     "aws.requestParameters.url",
-    "request",        // HTTP request line / path (web access log decoders)
+    "request", // HTTP request line / path (web access log decoders)
     // AWS S3 — bucket name / key being accessed
     "aws.requestParameters.bucketName",
     "gcp.protoPayload.resourceName",
@@ -356,7 +422,9 @@ pub(crate) const URL: &[&str] = &[
 ];
 
 pub(crate) const HTTP_METHOD: &[&str] = &[
-    "method", "http_method", "reqtype",
+    "method",
+    "http_method",
+    "reqtype",
     "aws.requestParameters.httpMethod",
     // AWS WAF — httpMethod inside httpRequest block
     "aws.httpRequest.httpMethod",
@@ -371,8 +439,11 @@ pub(crate) const HTTP_METHOD: &[&str] = &[
 ];
 
 pub(crate) const HTTP_STATUS: &[&str] = &[
-    "http_response_code", "http_status_code", "http_status",
-    "response_code", "status_code",
+    "http_response_code",
+    "http_status_code",
+    "http_status",
+    "response_code",
+    "status_code",
     // AWS ALB access log status code
     "aws.elb_status_code",
     // AWS S3 Server Access Logs HTTP status
@@ -384,12 +455,15 @@ pub(crate) const HTTP_STATUS: &[&str] = &[
 ];
 
 pub(crate) const APP_NAME: &[&str] = &[
-    "app", "application", "appName",
-    "service", "service_name",
-    "product_name",  // generic product/software name (many vendors)
-    "product",       // compact product field
-    "product.name",  // McAfee / Symantec / FireEye / Kaspersky / RSA decoder field (38 decoders)
-    "protocol",      // some decoders re-use protocol as app
+    "app",
+    "application",
+    "appName",
+    "service",
+    "service_name",
+    "product_name", // generic product/software name (many vendors)
+    "product",      // compact product field
+    "product.name", // McAfee / Symantec / FireEye / Kaspersky / RSA decoder field (38 decoders)
+    "protocol",     // some decoders re-use protocol as app
     // AWS CloudTrail — which AWS service was called (e.g. "ec2.amazonaws.com")
     "aws.eventSource",
     // AWS CloudTrail — service or principal that invoked the action on behalf of the actor
@@ -414,7 +488,7 @@ pub(crate) const APP_NAME: &[&str] = &[
     // Okta — client application / browser
     "okta.target.alternateId",
     "okta.client.userAgent.browser",
-    "module",           // module name (OpenVPN, Apache modules — 2 decoders)
+    "module", // module name (OpenVPN, Apache modules — 2 decoders)
     // Windows provider / event-log channel names (identify the application)
     "win.system.providerName",
     "win.system.channel",
@@ -438,7 +512,8 @@ pub(crate) const APP_NAME: &[&str] = &[
 ];
 
 pub(crate) const FILE_NAME: &[&str] = &[
-    "filename", "file_id",
+    "filename",
+    "file_id",
     "sysmon.targetfilename",
     "audit.file.name",
     // Office365 SharePoint / OneDrive — original file name before rename/move
@@ -446,52 +521,60 @@ pub(crate) const FILE_NAME: &[&str] = &[
     // Office365 SharePoint — file extension (used when full name not available)
     "office365.SourceFileExtension",
     "TargetPath",
-    "TargetFileName",           // Check Point / Windows Sysmon (target of file op)
-    "SourceFilePath",           // Check Point: source file full path
-    "ChildPath",                // sysmon process-create: child executable path
-    "ParentPath",               // sysmon process-create: parent executable path
+    "TargetFileName", // Check Point / Windows Sysmon (target of file op)
+    "SourceFilePath", // Check Point: source file full path
+    "ChildPath",      // sysmon process-create: child executable path
+    "ParentPath",     // sysmon process-create: parent executable path
     // Windows Defender / Microsoft Security
     "win.eventdata.objectName",
-    "defender.path",            // Defender threat path
-    "defender.pathfound",       // Defender scan hit
+    "defender.path",      // Defender threat path
+    "defender.pathfound", // Defender scan hit
     // Antivirus / Cylance / EDR
-    "cylance_threats.file_name", "cylance_threats.file_path",
-    "cylance_events.filepath",  // Cylance event filepath
-    "infected_file_path",       // generic AV alert field
-    "target_file",              // target file in various decoders
-    "path",                     // generic path field (syslog, Linux)
-    "Path",                     // uppercase variant (CEF / Windows)
-    "sysmon.imageLoaded",       // Sysmon event 7: DLL/image being loaded
-    "object",            // Windows audit object path (file/registry)
-    "url_filename",      // filename extracted from URL path
+    "cylance_threats.file_name",
+    "cylance_threats.file_path",
+    "cylance_events.filepath", // Cylance event filepath
+    "infected_file_path",      // generic AV alert field
+    "target_file",             // target file in various decoders
+    "path",                    // generic path field (syslog, Linux)
+    "Path",                    // uppercase variant (CEF / Windows)
+    "sysmon.imageLoaded",      // Sysmon event 7: DLL/image being loaded
+    "object",                  // Windows audit object path (file/registry)
+    "url_filename",            // filename extracted from URL path
     // Sysmon Event 11 — TargetFilename from CreateFile event
     "sysmon.filecreated",
     // Windows Event — file/image name variants from Security and Sysmon events
-    "win.eventdata.targetFileName",   // capital N — 4663/4656 Object Access
-    "win.eventdata.targetFilename",   // lowercase n — Sysmon Event 11 via WEF
+    "win.eventdata.targetFileName", // capital N — 4663/4656 Object Access
+    "win.eventdata.targetFilename", // lowercase n — Sysmon Event 11 via WEF
     "win.eventdata.originalFileName", // original file name before rename
-    "win.eventdata.imageLoaded",      // Sysmon Event 7 via WEF (image/DLL path)
+    "win.eventdata.imageLoaded",    // Sysmon Event 7 via WEF (image/DLL path)
     // auditd — directory path component of the file being accessed
     "audit.directory.name",
 ];
 
 pub(crate) const PROCESS_NAME: &[&str] = &[
-    "sysmon.image", "sysmon.Image",
-    "audit.exe", "audit.command",
+    "sysmon.image",
+    "sysmon.Image",
+    "audit.exe",
+    "audit.command",
     // auditd execve arguments — a0 is the executable, a1/a2 are arguments
-    "audit.execve.a0", "audit.execve.a1", "audit.execve.a2",
-    "command", "program", "process",
+    "audit.execve.a0",
+    "audit.execve.a1",
+    "audit.execve.a2",
+    "command",
+    "program",
+    "process",
     // Short command alias used by some decoders
     "cmd",
-    "SourceProcessName",  // Check Point / Cylance: initiating process
-    "ChildProcessName",   // parent-process audit records
+    "SourceProcessName", // Check Point / Cylance: initiating process
+    "ChildProcessName",  // parent-process audit records
     "defender.processname",
-    "process.name",        // dot-notation process name (various)
-    "sysmon.commandLine",  // Sysmon Command Line (full invocation string)
-    "sysmon.targetImage",  // Sysmon Event 8/10: target process image
-    "sysmon.parentImage",  // Sysmon parent process image path
-    "sysmon.sourceImage",  // Sysmon source process (thread injection etc.)
-    "win.eventdata.image", "win.eventdata.Image",
+    "process.name",       // dot-notation process name (various)
+    "sysmon.commandLine", // Sysmon Command Line (full invocation string)
+    "sysmon.targetImage", // Sysmon Event 8/10: target process image
+    "sysmon.parentImage", // Sysmon parent process image path
+    "sysmon.sourceImage", // Sysmon source process (thread injection etc.)
+    "win.eventdata.image",
+    "win.eventdata.Image",
     "win.eventdata.ProcessName",
     // Windows Event — full command line strings (Process create, PowerShell, etc.)
     "win.eventdata.commandLine",
@@ -506,25 +589,29 @@ pub(crate) const PROCESS_NAME: &[&str] = &[
 ];
 
 pub(crate) const PROCESS_ID: &[&str] = &[
-    "sysmon.processId", "sysmon.ProcessId",
-    "sysmon.processid",  // Sysmon lowercase variant (older Wazuh agents)
+    "sysmon.processId",
+    "sysmon.ProcessId",
+    "sysmon.processid", // Sysmon lowercase variant (older Wazuh agents)
     "audit.pid",
-    "pid",               // generic lowercase PID (netstat, auditd, misc)
-    "PID",               // uppercase PID (Check Point, Cylance LEEF)
-    "process.pid",       // dot-notation PID (docker, nested decoders)
-    "win.eventdata.processId", "win.eventdata.ProcessId",
+    "pid",         // generic lowercase PID (netstat, auditd, misc)
+    "PID",         // uppercase PID (Check Point, Cylance LEEF)
+    "process.pid", // dot-notation PID (docker, nested decoders)
+    "win.eventdata.processId",
+    "win.eventdata.ProcessId",
     "win.system.execution.processId",
-    "sysmon.parentProcessId",  // Sysmon parent process PID
-    "sqlserver.processid",     // SQL Server audit process id
+    "sysmon.parentProcessId", // Sysmon parent process PID
+    "sqlserver.processid",    // SQL Server audit process id
 ];
 
 pub(crate) const RULE_NAME: &[&str] = &[
-    "rule_name", "attack.name", "attack",
+    "rule_name",
+    "attack.name",
+    "attack",
     "sysmon.signature",
-    "sysmon.ruleName",    // Sysmon v15+ matching rule name
+    "sysmon.ruleName", // Sysmon v15+ matching rule name
     "signature",
-    "ThreatName",         // Cylance / CrowdStrike threat name
-    "AnalyzerRuleName",   // Prelude IDMEF analyzer rule name
+    "ThreatName",       // Cylance / CrowdStrike threat name
+    "AnalyzerRuleName", // Prelude IDMEF analyzer rule name
     // AWS GuardDuty / Inspector / Macie — finding title
     "aws.title",
     // AWS Trusted Advisor — check name (key contains hyphen, resolved via jpath split)
@@ -538,15 +625,19 @@ pub(crate) const RULE_NAME: &[&str] = &[
     // AWS Security Hub — the CIS/NIST/PCI security control ID that failed
     "aws.finding.Compliance.SecurityControlId",
     // AV / EDR threat / malware names (OCSF malware.name — closest column is rule_name / finding_title)
-    "virus",          // ClamAV / generic AV decoder: name of detected virus
-    "defender.name",  // Windows Defender: threat name (e.g. Trojan:Win32/Emotet)
+    "virus",         // ClamAV / generic AV decoder: name of detected virus
+    "defender.name", // Windows Defender: threat name (e.g. Trojan:Win32/Emotet)
 ];
 
 pub(crate) const CATEGORY: &[&str] = &[
-    "category", "cat", "appcat", "application_category",
+    "category",
+    "cat",
+    "appcat",
+    "application_category",
     // PAN-OS / FortiGate
-    "subtype", "sub_cat",
-    "subcat",            // no-underscore variant (6 decoders: FortiGate, Arbor)
+    "subtype",
+    "sub_cat",
+    "subcat", // no-underscore variant (6 decoders: FortiGate, Arbor)
     // Windows / CEF
     "Category",
     // EDR / AV threat category
@@ -592,12 +683,16 @@ pub(crate) const CATEGORY: &[&str] = &[
 ];
 
 pub(crate) const IFACE_IN: &[&str] = &[
-    "srcintf", "inbound_interface", "interface",
+    "srcintf",
+    "inbound_interface",
+    "interface",
     "packet_incoming_interface",
-    "source_zone", "srczone",  // zone-based firewall ingress zone
-    "in_interface",            // generic inbound interface
-    "inzone",                  // FortiGate ingress zone
-    "ifname",  "if_name",     // interface name (pfSense, Linux)
+    "source_zone",
+    "srczone",      // zone-based firewall ingress zone
+    "in_interface", // generic inbound interface
+    "inzone",       // FortiGate ingress zone
+    "ifname",
+    "if_name", // interface name (pfSense, Linux)
     // AWS VPC Flow — ENI that captured the traffic
     "interfaceId",
     // Zeek/Bro — log path indicates sensor/interface (e.g. "conn", "dns")
@@ -607,36 +702,43 @@ pub(crate) const IFACE_IN: &[&str] = &[
 ];
 
 pub(crate) const IFACE_OUT: &[&str] = &[
-    "dstintf", "outbound_interface",
-    "destination_zone", "dstzone",   // zone-based firewall egress zone
-    "out_interface",                  // generic outbound interface
-    "outzone",                        // FortiGate egress zone
-    "outintf",                        // compact outbound interface name
-    "dstinterface",                   // FortiGate destination interface
+    "dstintf",
+    "outbound_interface",
+    "destination_zone",
+    "dstzone",       // zone-based firewall egress zone
+    "out_interface", // generic outbound interface
+    "outzone",       // FortiGate egress zone
+    "outintf",       // compact outbound interface name
+    "dstinterface",  // FortiGate destination interface
     // Router/switch LAN outbound interface
     "lanout",
 ];
 
 pub(crate) const SRC_HOSTNAME: &[&str] = &[
-    "hostname", "srchost", "src_host", "sourceHostname", "source_hostname",
+    "hostname",
+    "srchost",
+    "src_host",
+    "sourceHostname",
+    "source_hostname",
     "dvchost",
-    "host",            // generic syslog hostname
-    "HostName",        // Prelude / Check Point PascalCase variant
-    "AnalyzerHostName",// Prelude IDMEF analyzer host
-    "TargetHostName",  // Check Point target device hostname
-    "identHostName",   // ident/IDMEF source hostname
-    "serial_number",   // Fortinet/SonicWall device serial used as device identifier (7 decoders)
-    "win.system.computer", "win.eventdata.workstationName",
+    "host",             // generic syslog hostname
+    "HostName",         // Prelude / Check Point PascalCase variant
+    "AnalyzerHostName", // Prelude IDMEF analyzer host
+    "TargetHostName",   // Check Point target device hostname
+    "identHostName",    // ident/IDMEF source hostname
+    "serial_number",    // Fortinet/SonicWall device serial used as device identifier (7 decoders)
+    "win.system.computer",
+    "win.eventdata.workstationName",
     "win.eventdata.WorkstationName",
-    "srcname",        // source name / hostname (LEEF, ArcSight)
-    "sname",          // compact source name (some LEEF decoders)
-    "caller_computer", // Windows Security logon: caller computer name
-    "machine_name",   // generic machine name
-    "machinename",    // no-underscore variant
-    "sysmon.sourceHostname",         // Sysmon source process host
-    "qualysguard.dns_hostname",      // Qualys scan source DNS hostname
-    "qualysguard.netbios_hostname",  // Qualys scan source NetBIOS hostname
-    "firewall_name",  // FortiGate/SonicWall/pfSense: device that generated the log (9 decoders)
+    "srcname",                      // source name / hostname (LEEF, ArcSight)
+    "sname",                        // compact source name (some LEEF decoders)
+    "caller_computer",              // Windows Security logon: caller computer name
+    "machine_name",                 // generic machine name
+    "machinename",                  // no-underscore variant
+    "sysmon.sourceHostname",        // Sysmon source process host
+    "qualysguard.dns_hostname",     // Qualys scan source DNS hostname
+    "qualysguard.netbios_hostname", // Qualys scan source NetBIOS hostname
+    "firewall_name", // FortiGate/SonicWall/pfSense: device that generated the log (9 decoders)
     // AWS Inspector — hostname of the assessed EC2 instance
     "aws.assetAttributes.hostname",
     // SentinelOne / generic EDR — PascalCase variant (sourceHostname is already above)
@@ -646,10 +748,13 @@ pub(crate) const SRC_HOSTNAME: &[&str] = &[
 ];
 
 pub(crate) const DST_HOSTNAME: &[&str] = &[
-    "dsthost", "dst_host", "destinationHostname", "destination_hostname",
+    "dsthost",
+    "dst_host",
+    "destinationHostname",
+    "destination_hostname",
     "sysmon.destinationHostname", // Sysmon Event 3: network connection dest host
-    "server_name",               // HTTP SNI / TLS server name
-    "device_name",               // Fortinet / SonicWall / Sophos: name of the destination device (5 decoders)
+    "server_name",                // HTTP SNI / TLS server name
+    "device_name", // Fortinet / SonicWall / Sophos: name of the destination device (5 decoders)
     // Windows Event — destination hostname for network events (e.g. RDP target)
     "win.eventdata.destination",
     // Office365 — display name of the connecting device (device.name in OCSF)
@@ -659,14 +764,15 @@ pub(crate) const DST_HOSTNAME: &[&str] = &[
 ];
 
 pub(crate) const ACTION: &[&str] = &[
-    "action", "log_action",
-    "Action",             // Check Point / Prelude: PascalCase variant
-    "ThreatActionTaken",  // Cylance / CrowdStrike EDR response action
-    "RegAction",          // registry hive audit action (create/modify/delete)
-    "data.action",        // nested data.action from some syslog decoders
+    "action",
+    "log_action",
+    "Action",            // Check Point / Prelude: PascalCase variant
+    "ThreatActionTaken", // Cylance / CrowdStrike EDR response action
+    "RegAction",         // registry hive audit action (create/modify/delete)
+    "data.action",       // nested data.action from some syslog decoders
     "alert.action",
     "fw_action",
-    "act",                // CEF
+    "act", // CEF
     "aws.eventName",
     "gcp.protoPayload.methodName",
     // Azure AD / Monitor — the operation performed
@@ -677,10 +783,10 @@ pub(crate) const ACTION: &[&str] = &[
     "okta.eventType",
     "github.action",
     "office365.Operation",
-    "defender.action",    // Windows Defender quarantine / block / allow
-    "operation",          // generic operation name (MariaDB, Check Point, OSSIM)
-    "rule_action",        // action from the matching rule (Suricata, Snort)
-    "utmaction",          // FortiGate UTM action
+    "defender.action", // Windows Defender quarantine / block / allow
+    "operation",       // generic operation name (MariaDB, Check Point, OSSIM)
+    "rule_action",     // action from the matching rule (Suricata, Snort)
+    "utmaction",       // FortiGate UTM action
     // AWS VPC Flow (ACCEPT/REJECT) and WAF (ALLOW/BLOCK) — nested aws.action
     "aws.action",
     // Cloudflare WAF — rule disposition (allow/block/simulate/challenge/unknown)
@@ -712,12 +818,15 @@ pub(crate) const ACTION: &[&str] = &[
 ];
 
 pub(crate) const STATUS: &[&str] = &[
-    "status", "result", "outcome",
-    "reason",                    // generic reason/error string (9 decoders: ipsec, vpn, radius)
-    "severity",                  // vendor severity label used as status text (7 decoders)
-    "data.status",               // nested data.status from generic decoders
+    "status",
+    "result",
+    "outcome",
+    "reason",      // generic reason/error string (9 decoders: ipsec, vpn, radius)
+    "severity",    // vendor severity label used as status text (7 decoders)
+    "data.status", // nested data.status from generic decoders
     "cylance_events.eventstatus", // Cylance event status
-    "win.eventdata.status",  "win.eventdata.Status",
+    "win.eventdata.status",
+    "win.eventdata.Status",
     "win.eventdata.failureReason",
     "aws.errorCode",
     // Okta outcome — SUCCESS, FAILURE, SKIPPED, ALLOW, DENY, UNKNOWN
@@ -726,9 +835,9 @@ pub(crate) const STATUS: &[&str] = &[
     "azure.resultType",
     "azure.resultDescription",
     "audit.res",
-    "audit.success",   // auditd success field ("yes"/"no" or "1"/"0")
-    "error",           // generic error field (STATUS = error outcome)
-    "event.severity",  // Prelude/RSA IDMEF analyzer event severity (38 decoders)
+    "audit.success",  // auditd success field ("yes"/"no" or "1"/"0")
+    "error",          // generic error field (STATUS = error outcome)
+    "event.severity", // Prelude/RSA IDMEF analyzer event severity (38 decoders)
     // AWS Trusted Advisor — check status (ERROR / WARN / OK)
     "aws.status",
     // AWS Config — configuration item status (OK / ResourceDiscovered / ResourceDeleted / …)

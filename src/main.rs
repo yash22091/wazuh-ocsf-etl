@@ -47,8 +47,8 @@ mod zmq;
 use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
 // ── External crates ──────────────────────────────────────────────────────────
@@ -77,10 +77,7 @@ fn file_mtime(p: &Path) -> Option<SystemTime> {
 
 // ─── Config hot-reload watcher ────────────────────────────────────────────────
 
-async fn config_watcher_task(
-    path:     PathBuf,
-    mappings: Arc<RwLock<CustomMappings>>,
-) {
+async fn config_watcher_task(path: PathBuf, mappings: Arc<RwLock<CustomMappings>>) {
     let mut last = file_mtime(&path);
     let mut tick = interval(Duration::from_secs(CONFIG_POLL_SECS));
     loop {
@@ -93,7 +90,7 @@ async fn config_watcher_task(
                     let ver = new.ocsf_version.clone();
                     let renames = new.ocsf_renames.clone();
                     let mut g = match mappings.write() {
-                        Ok(g)  => g,
+                        Ok(g) => g,
                         Err(e) => {
                             error!("field_mappings RwLock poisoned — recovering: {e}");
                             e.into_inner()
@@ -118,19 +115,19 @@ async fn config_watcher_task(
 // ─── Flush helper ─────────────────────────────────────────────────────────────
 
 async fn do_flush(
-    client:            &Client,
-    cfg:               &AppConfig,
-    batches:           &mut BatchMap,
-    known_tables:      &mut HashSet<String>,
+    client: &Client,
+    cfg: &AppConfig,
+    batches: &mut BatchMap,
+    known_tables: &mut HashSet<String>,
     known_custom_cols: &mut HashSet<String>,
-    custom_mappings:   &std::sync::RwLock<config::CustomMappings>,
-    store:             &StateStore,
-    offset:            u64,
+    custom_mappings: &std::sync::RwLock<config::CustomMappings>,
+    store: &StateStore,
+    offset: u64,
 ) {
     // Detect new custom column targets added since last flush (hot-reload)
     let new_cols: Vec<String> = {
         let g = match custom_mappings.read() {
-            Ok(g)  => g,
+            Ok(g) => g,
             Err(e) => e.into_inner(),
         };
         g.custom_column_targets()
@@ -146,9 +143,13 @@ async fn do_flush(
         let mut failed: std::collections::HashSet<String> = std::collections::HashSet::new();
         for table in known_tables.iter() {
             let applied = ensure_custom_columns(
-                &cfg.clickhouse_url, &cfg.clickhouse_user, &cfg.clickhouse_password,
-                table, &new_cols,
-            ).await;
+                &cfg.clickhouse_url,
+                &cfg.clickhouse_user,
+                &cfg.clickhouse_password,
+                table,
+                &new_cols,
+            )
+            .await;
             let applied_set: std::collections::HashSet<_> = applied.into_iter().collect();
             for col in &new_cols {
                 if !applied_set.contains(col) {
@@ -166,8 +167,21 @@ async fn do_flush(
         }
     }
     let all_custom: Vec<String> = known_custom_cols.iter().cloned().collect();
-    flush_all(client, &cfg.clickhouse_url, &cfg.clickhouse_user, &cfg.clickhouse_password, &cfg.clickhouse_db, cfg.data_ttl_days, batches, known_tables, &all_custom).await;
-    let inode = std::fs::metadata(&cfg.alerts_file).map(|m| m.ino()).unwrap_or(0);
+    flush_all(
+        client,
+        &cfg.clickhouse_url,
+        &cfg.clickhouse_user,
+        &cfg.clickhouse_password,
+        &cfg.clickhouse_db,
+        cfg.data_ttl_days,
+        batches,
+        known_tables,
+        &all_custom,
+    )
+    .await;
+    let inode = std::fs::metadata(&cfg.alerts_file)
+        .map(|m| m.ino())
+        .unwrap_or(0);
     if let Err(e) = store.save(&TailState { inode, offset }) {
         warn!("state save: {e:#}");
     }
@@ -203,9 +217,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| {
-                    tracing_subscriber::EnvFilter::new("info")
-                }),
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .with_target(false)
         .with_thread_ids(false)
@@ -223,18 +235,24 @@ async fn main() -> Result<()> {
 
     // ── Startup configuration sanity checks ──────────────────────────────
     if cfg.batch_size == 0 {
-        warn!("BATCH_SIZE=0 — every row will be flushed individually (very slow). \
-               Set BATCH_SIZE to at least 100.");
+        warn!(
+            "BATCH_SIZE=0 — every row will be flushed individually (very slow). \
+               Set BATCH_SIZE to at least 100."
+        );
     }
     if cfg.flush_interval_secs == 0 {
-        warn!("FLUSH_INTERVAL_SECS=0 — the timer will fire as fast as the tokio \
-               scheduler allows. Set to at least 1.");
+        warn!(
+            "FLUSH_INTERVAL_SECS=0 — the timer will fire as fast as the tokio \
+               scheduler allows. Set to at least 1."
+        );
     }
     if cfg.channel_cap < cfg.batch_size * 2 {
         warn!(
             "CHANNEL_CAP ({}) < BATCH_SIZE ({}) × 2 — the reader will be forced to pause \
              during every ClickHouse flush. Recommended minimum: {}",
-            cfg.channel_cap, cfg.batch_size, cfg.batch_size * 10
+            cfg.channel_cap,
+            cfg.batch_size,
+            cfg.batch_size * 10
         );
     }
 
@@ -243,9 +261,11 @@ async fn main() -> Result<()> {
     let saved_state = state_store.load();
 
     let file_size: u64 = std::fs::metadata(&cfg.alerts_file)
-        .map(|m| m.len()).unwrap_or(0);
+        .map(|m| m.len())
+        .unwrap_or(0);
     let current_inode: u64 = std::fs::metadata(&cfg.alerts_file)
-        .map(|m| std::os::unix::fs::MetadataExt::ino(&m)).unwrap_or(0);
+        .map(|m| std::os::unix::fs::MetadataExt::ino(&m))
+        .unwrap_or(0);
 
     let is_first_run = saved_state.offset == 0 && saved_state.inode == 0;
 
@@ -253,8 +273,10 @@ async fn main() -> Result<()> {
         if saved_state.inode != 0 && saved_state.inode != current_inode {
             saved_state.offset
         } else if saved_state.offset > file_size {
-            warn!("State offset {} > file size {} — file was truncated. Starting from 0.",
-                  saved_state.offset, file_size);
+            warn!(
+                "State offset {} > file size {} — file was truncated. Starting from 0.",
+                saved_state.offset, file_size
+            );
             0
         } else {
             saved_state.offset
@@ -265,25 +287,32 @@ async fn main() -> Result<()> {
         0
     };
 
-    let start_state = TailState { inode: current_inode, offset: start_offset };
+    let start_state = TailState {
+        inode: current_inode,
+        offset: start_offset,
+    };
 
     if is_first_run && start_offset > 0 {
         let _ = state_store.save(&start_state);
     }
 
     // ── Custom field mappings (non-fatal if absent) ────────────────────────
-    let initial_mappings = CustomMappings::load(&cfg.mappings_file)
-        .unwrap_or_else(|e| {
-            warn!("field_mappings.toml not loaded ({e:#}), using defaults");
-            CustomMappings::default()
-        });
+    let initial_mappings = CustomMappings::load(&cfg.mappings_file).unwrap_or_else(|e| {
+        warn!("field_mappings.toml not loaded ({e:#}), using defaults");
+        CustomMappings::default()
+    });
 
     info!("=== Wazuh → OCSF → ClickHouse ETL ===");
-    info!("  alerts_file      : {} (size: {:.1} MB)",
-          cfg.alerts_file, file_size as f64 / 1_048_576.0);
-    info!("  start_offset     : {}  ({:.1} MB to process on startup)",
-          start_offset,
-          (file_size.saturating_sub(start_offset)) as f64 / 1_048_576.0);
+    info!(
+        "  alerts_file      : {} (size: {:.1} MB)",
+        cfg.alerts_file,
+        file_size as f64 / 1_048_576.0
+    );
+    info!(
+        "  start_offset     : {}  ({:.1} MB to process on startup)",
+        start_offset,
+        (file_size.saturating_sub(start_offset)) as f64 / 1_048_576.0
+    );
     if is_first_run {
         if cfg.seek_to_end_on_first_run {
             info!("  first_run_mode   : TAIL (start from end — existing data skipped)");
@@ -294,25 +323,43 @@ async fn main() -> Result<()> {
     } else {
         let gap = file_size.saturating_sub(start_offset);
         if gap > 0 {
-            info!("  catch_up         : {:.1} MB written while service was stopped",
-                  gap as f64 / 1_048_576.0);
+            info!(
+                "  catch_up         : {:.1} MB written while service was stopped",
+                gap as f64 / 1_048_576.0
+            );
         }
     }
     info!("  state_file       : {}", cfg.state_file.display());
     info!("  seek_end_on_first : {}", cfg.seek_to_end_on_first_run);
-    info!("  input_mode       : {}", match cfg.input_mode {
-        InputMode::File   => format!("FILE  ({})", cfg.alerts_file),
-        InputMode::ZeroMq => format!("ZEROMQ  ({})", cfg.zeromq_uri),
-    });
-    info!("  batch_size       : {}   flush: every {}s   channel_cap: {} (~{} MB max in-flight)",
-          cfg.batch_size, cfg.flush_interval_secs, cfg.channel_cap, cfg.channel_cap / 1024);
+    info!(
+        "  input_mode       : {}",
+        match cfg.input_mode {
+            InputMode::File => format!("FILE  ({})", cfg.alerts_file),
+            InputMode::ZeroMq => format!("ZEROMQ  ({})", cfg.zeromq_uri),
+        }
+    );
+    info!(
+        "  batch_size       : {}   flush: every {}s   channel_cap: {} (~{} MB max in-flight)",
+        cfg.batch_size,
+        cfg.flush_interval_secs,
+        cfg.channel_cap,
+        cfg.channel_cap / 1024
+    );
     info!("  special_locations: {:?}", cfg.special_locations);
     info!("  data_ttl_days    : {:?}", cfg.data_ttl_days);
     info!("  ocsf_version     : {}", initial_mappings.ocsf_version);
-    info!("  custom_mappings  : {} rule(s)", initial_mappings.field_map.len());
-    info!("  ocsf_validate    : {} (set OCSF_VALIDATE=false to disable)",
-          OCSF_VALIDATE.load(Ordering::Relaxed));
-    info!("  unmapped report  : {}", cfg.unmapped_fields_file.display());
+    info!(
+        "  custom_mappings  : {} rule(s)",
+        initial_mappings.field_map.len()
+    );
+    info!(
+        "  ocsf_validate    : {} (set OCSF_VALIDATE=false to disable)",
+        OCSF_VALIDATE.load(Ordering::Relaxed)
+    );
+    info!(
+        "  unmapped report  : {}",
+        cfg.unmapped_fields_file.display()
+    );
 
     // Archive the previous session's report before this session begins accumulating.
     // This ensures that data discovered before the restart is never silently lost.
@@ -322,12 +369,13 @@ async fn main() -> Result<()> {
         if let Ok(txt) = std::fs::read_to_string(&cfg.unmapped_fields_file) {
             if let Ok(v) = serde_json::from_str::<Value>(&txt) {
                 if let Some(fields) = v.get("fields").and_then(Value::as_array) {
-                    let shown: Vec<&str> = fields.iter()
-                        .filter_map(Value::as_str)
-                        .take(10)
-                        .collect();
+                    let shown: Vec<&str> =
+                        fields.iter().filter_map(Value::as_str).take(10).collect();
                     if !shown.is_empty() {
-                        info!("  top unmapped fields (add to field_mappings.toml): {:?}", shown);
+                        info!(
+                            "  top unmapped fields (add to field_mappings.toml): {:?}",
+                            shown
+                        );
                     }
                 }
             }
@@ -335,12 +383,13 @@ async fn main() -> Result<()> {
     }
 
     for (old, new_col) in &initial_mappings.ocsf_renames {
-        warn!("OCSF rename pending: `{old}` → `{new_col}`. \
-               Run: ALTER TABLE <db>.<table> RENAME COLUMN `{old}` TO `{new_col}`;");
+        warn!(
+            "OCSF rename pending: `{old}` → `{new_col}`. \
+               Run: ALTER TABLE <db>.<table> RENAME COLUMN `{old}` TO `{new_col}`;"
+        );
     }
 
-    let custom_mappings: Arc<RwLock<CustomMappings>> =
-        Arc::new(RwLock::new(initial_mappings));
+    let custom_mappings: Arc<RwLock<CustomMappings>> = Arc::new(RwLock::new(initial_mappings));
 
     let client = Client::default()
         .with_url(&cfg.clickhouse_url)
@@ -375,11 +424,11 @@ async fn main() -> Result<()> {
     }
 
     // ── Processing state ─────────────────────────────────────────────────
-    let mut batches:            BatchMap        = HashMap::new();
-    let mut known_tables:       HashSet<String> = HashSet::new();
+    let mut batches: BatchMap = HashMap::new();
+    let mut known_tables: HashSet<String> = HashSet::new();
     // Tracks custom ClickHouse columns already applied via ALTER TABLE so we
     // only issue DDL once per new unique target across all hot-reloads.
-    let mut known_custom_cols:  HashSet<String> = HashSet::new();
+    let mut known_custom_cols: HashSet<String> = HashSet::new();
     let mut current_offset: u64 = start_state.offset;
 
     let mut flush_tick = interval(Duration::from_secs(cfg.flush_interval_secs));
@@ -466,7 +515,9 @@ async fn shutdown_signal() {
     #[cfg(unix)]
     let terminate = async {
         match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(mut sig) => { sig.recv().await; }
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
             Err(e) => {
                 error!("Cannot install SIGTERM handler: {e:#} — SIGTERM will not trigger graceful shutdown");
                 std::future::pending::<()>().await;
@@ -488,23 +539,33 @@ mod tests {
     use crate::classify::{classify_event, map_severity};
     use crate::config::CustomMappings;
     use crate::field_paths::{BYTES_IN, BYTES_OUT};
-    use crate::json::{jpath, get_data_field, first_str, first_port, first_u64, flatten_to_paths};
-    use crate::transform::{transform, routing_table};
-    use crate::unmapped::{track_unmapped_fields, write_unmapped_report, UNMAPPED_TRACKER, FieldInfo};
-    use std::collections::{HashMap, HashSet};
+    use crate::json::{first_port, first_str, first_u64, flatten_to_paths, get_data_field, jpath};
+    use crate::transform::{routing_table, transform};
+    use crate::unmapped::{
+        track_unmapped_fields, write_unmapped_report, FieldInfo, UNMAPPED_TRACKER,
+    };
     use serde_json::Value;
+    use std::collections::{HashMap, HashSet};
 
-    fn no_custom() -> CustomMappings { CustomMappings::default() }
+    fn no_custom() -> CustomMappings {
+        CustomMappings::default()
+    }
 
     // ── Sanitise ─────────────────────────────────────────────────────────
 
     #[test]
     fn sanitize_path() {
-        assert_eq!(crate::transform::sanitize_name("/var/log/auth.log"), "var_log_auth_log");
+        assert_eq!(
+            crate::transform::sanitize_name("/var/log/auth.log"),
+            "var_log_auth_log"
+        );
     }
     #[test]
     fn sanitize_dashes_dots() {
-        assert_eq!(crate::transform::sanitize_name("agent-01.corp.local"), "agent_01_corp_local");
+        assert_eq!(
+            crate::transform::sanitize_name("agent-01.corp.local"),
+            "agent_01_corp_local"
+        );
     }
 
     // ── Routing ──────────────────────────────────────────────────────────
@@ -536,16 +597,28 @@ mod tests {
 
     #[test]
     fn severity_bands() {
-        let cases = [(0,"Unknown"),(1,"Informational"),(4,"Low"),
-                     (7,"Medium"),(10,"High"),(13,"Critical"),(15,"Critical")];
-        for (lvl, label) in cases { assert_eq!(map_severity(lvl).1, label, "level={lvl}"); }
+        let cases = [
+            (0, "Unknown"),
+            (1, "Informational"),
+            (4, "Low"),
+            (7, "Medium"),
+            (10, "High"),
+            (13, "Critical"),
+            (15, "Critical"),
+        ];
+        for (lvl, label) in cases {
+            assert_eq!(map_severity(lvl).1, label, "level={lvl}");
+        }
     }
     #[test]
     fn severity_ids_are_valid_ocsf() {
-        let valid: HashSet<u8> = [0,1,2,3,4,5,99].into();
+        let valid: HashSet<u8> = [0, 1, 2, 3, 4, 5, 99].into();
         for level in 0u64..=20 {
             let (id, _) = map_severity(level);
-            assert!(valid.contains(&id), "severity_id={id} for level={level} is not in OCSF 1.7.0 enum");
+            assert!(
+                valid.contains(&id),
+                "severity_id={id} for level={level} is not in OCSF 1.7.0 enum"
+            );
         }
     }
 
@@ -570,9 +643,9 @@ mod tests {
     #[test]
     fn get_data_field_number_and_bool() {
         let v = serde_json::json!({"port": 8443, "retries": 3, "tls": true});
-        assert_eq!(get_data_field(&v, "port"),    "8443");
+        assert_eq!(get_data_field(&v, "port"), "8443");
         assert_eq!(get_data_field(&v, "retries"), "3");
-        assert_eq!(get_data_field(&v, "tls"),     "true");
+        assert_eq!(get_data_field(&v, "tls"), "true");
     }
     #[test]
     fn get_data_field_nested_number() {
@@ -582,14 +655,14 @@ mod tests {
     #[test]
     fn first_port_string_and_number() {
         let v = serde_json::json!({"s":"8080","n":443,"zero":"0"});
-        assert_eq!(first_port(&v, &["s"]),    8080u16);
-        assert_eq!(first_port(&v, &["n"]),    443u16);
+        assert_eq!(first_port(&v, &["s"]), 8080u16);
+        assert_eq!(first_port(&v, &["n"]), 443u16);
         assert_eq!(first_port(&v, &["zero"]), 0u16);
     }
     #[test]
     fn first_u64_bytes() {
         let v = serde_json::json!({"rcvdbyte": "102400", "sentbyte": 204800u64});
-        assert_eq!(first_u64(&v, BYTES_IN),  102400u64);
+        assert_eq!(first_u64(&v, BYTES_IN), 102400u64);
         assert_eq!(first_u64(&v, BYTES_OUT), 204800u64);
     }
 
@@ -610,11 +683,11 @@ mod tests {
                     "srcuser":"root","protocol":"tcp"}
         }"#;
         let (tbl, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(tbl,             "db.ocsf_linux_srv_01");
-        assert_eq!(rec.src_ip,      "203.0.113.5");
-        assert_eq!(rec.src_port,    55123u16);
-        assert_eq!(rec.dst_port,    22u16);
-        assert_eq!(rec.actor_user,  "root");
+        assert_eq!(tbl, "db.ocsf_linux_srv_01");
+        assert_eq!(rec.src_ip, "203.0.113.5");
+        assert_eq!(rec.src_port, 55123u16);
+        assert_eq!(rec.dst_port, 22u16);
+        assert_eq!(rec.actor_user, "root");
         assert_eq!(rec.network_protocol, "tcp");
         assert_eq!(rec.severity_id, 4);
         assert!(rec.attack_id.contains("T1110"));
@@ -649,11 +722,11 @@ mod tests {
         }"#;
         let (tbl, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
         assert_eq!(tbl, "db.ocsf_win_dc_01");
-        assert_eq!(rec.src_ip,      "192.168.1.100");
-        assert_eq!(rec.actor_user,  "Administrator");
-        assert_eq!(rec.domain,      "CORP");
-        assert_eq!(rec.src_hostname,"WIN-DC-01");
-        assert_eq!(rec.status,      "0xC000006D");
+        assert_eq!(rec.src_ip, "192.168.1.100");
+        assert_eq!(rec.actor_user, "Administrator");
+        assert_eq!(rec.domain, "CORP");
+        assert_eq!(rec.src_hostname, "WIN-DC-01");
+        assert_eq!(rec.status, "0xC000006D");
         assert_eq!(rec.severity_id, 2);
     }
 
@@ -680,11 +753,11 @@ mod tests {
         }"#;
         let (tbl, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
         assert_eq!(tbl, "db.ocsf_ids_sensor");
-        assert_eq!(rec.src_ip,           "198.51.100.7");
-        assert_eq!(rec.dst_port,         22u16);
+        assert_eq!(rec.src_ip, "198.51.100.7");
+        assert_eq!(rec.dst_port, 22u16);
         assert_eq!(rec.network_protocol, "TCP");
-        assert_eq!(rec.action,           "blocked");
-        assert_eq!(rec.bytes_in,         1024u64);
+        assert_eq!(rec.action, "blocked");
+        assert_eq!(rec.bytes_in, 1024u64);
     }
 
     // ── FortiGate firewall log ─────────────────────────────────────────────
@@ -712,17 +785,17 @@ mod tests {
             }
         }"#;
         let (tbl, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(tbl,               "db.ocsf_fortinet_fw");
-        assert_eq!(rec.src_ip,        "10.10.10.5");
-        assert_eq!(rec.dst_ip,        "8.8.8.8");
-        assert_eq!(rec.dst_port,      443u16);
-        assert_eq!(rec.nat_src_ip,    "203.0.113.1");
-        assert_eq!(rec.nat_src_port,  49200u16);
-        assert_eq!(rec.nat_dst_ip,    "8.8.4.4");
-        assert_eq!(rec.interface_in,  "internal");
+        assert_eq!(tbl, "db.ocsf_fortinet_fw");
+        assert_eq!(rec.src_ip, "10.10.10.5");
+        assert_eq!(rec.dst_ip, "8.8.8.8");
+        assert_eq!(rec.dst_port, 443u16);
+        assert_eq!(rec.nat_src_ip, "203.0.113.1");
+        assert_eq!(rec.nat_src_port, 49200u16);
+        assert_eq!(rec.nat_dst_ip, "8.8.4.4");
+        assert_eq!(rec.interface_in, "internal");
         assert_eq!(rec.interface_out, "wan1");
-        assert_eq!(rec.action,        "deny");
-        assert_eq!(rec.bytes_out,     512u64);
+        assert_eq!(rec.action, "deny");
+        assert_eq!(rec.bytes_out, 512u64);
     }
 
     // ── AWS CloudTrail (via special location) ─────────────────────────────
@@ -751,12 +824,12 @@ mod tests {
         }"#;
         let sp = vec!["aws-cloudtrail".to_string()];
         let (tbl, rec) = transform(raw, "db", &sp, &no_custom()).unwrap();
-        assert_eq!(tbl,             "db.ocsf_aws_cloudtrail");
-        assert_eq!(rec.src_ip,      "52.1.2.3");
-        assert_eq!(rec.actor_user,  "jdoe");
-        assert_eq!(rec.domain,      "123456789");
-        assert_eq!(rec.action,      "ConsoleLogin");
-        assert_eq!(rec.status,      "Failed authentication");
+        assert_eq!(tbl, "db.ocsf_aws_cloudtrail");
+        assert_eq!(rec.src_ip, "52.1.2.3");
+        assert_eq!(rec.actor_user, "jdoe");
+        assert_eq!(rec.domain, "123456789");
+        assert_eq!(rec.action, "ConsoleLogin");
+        assert_eq!(rec.status, "Failed authentication");
     }
 
     // ── Auditd (literal dotted keys) ──────────────────────────────────────
@@ -783,7 +856,7 @@ mod tests {
         let (tbl, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
         assert_eq!(tbl, "db.ocsf_audit_host");
         assert_eq!(rec.process_name, "/usr/bin/passwd");
-        assert_eq!(rec.actor_user,   "root");
+        assert_eq!(rec.actor_user, "root");
     }
 
     // ── Custom field mapping ──────────────────────────────────────────────
@@ -796,7 +869,8 @@ mod tests {
             "data": {"myapp.client_addr":"1.2.3.4"}
         }"#;
         let mut cm = no_custom();
-        cm.field_map.insert("myapp.client_addr".into(), "src_ip".into());
+        cm.field_map
+            .insert("myapp.client_addr".into(), "src_ip".into());
         let (_, rec) = transform(raw, "db", &[], &cm).unwrap();
         assert_eq!(rec.src_ip, "1.2.3.4");
     }
@@ -808,7 +882,8 @@ mod tests {
             "data": {"srcip":"5.5.5.5","myapp.other_ip":"9.9.9.9"}
         }"#;
         let mut cm = no_custom();
-        cm.field_map.insert("myapp.other_ip".into(), "src_ip".into());
+        cm.field_map
+            .insert("myapp.other_ip".into(), "src_ip".into());
         let (_, rec) = transform(raw, "db", &[], &cm).unwrap();
         assert_eq!(rec.src_ip, "5.5.5.5");
     }
@@ -820,7 +895,8 @@ mod tests {
             "data": {"myapp.score":"99"}
         }"#;
         let mut cm = no_custom();
-        cm.field_map.insert("myapp.score".into(), "threat_score".into());
+        cm.field_map
+            .insert("myapp.score".into(), "threat_score".into());
         let (_, rec) = transform(raw, "db", &[], &cm).unwrap();
         let ext: Value = serde_json::from_str(&rec.extensions).unwrap();
         assert_eq!(ext["threat_score"].as_str(), Some("99"));
@@ -844,29 +920,42 @@ mod tests {
             }
         }"#;
         let mut cm = no_custom();
-        cm.field_map.insert("vendor.nat_src".into(),  "nat_src_ip".into());
-        cm.field_map.insert("vendor.nat_dst".into(),  "nat_dst_ip".into());
-        cm.field_map.insert("vendor.nsp".into(),      "nat_src_port".into());
-        cm.field_map.insert("vendor.ndp".into(),      "nat_dst_port".into());
-        cm.field_map.insert("vendor.iface_in".into(), "interface_in".into());
-        cm.field_map.insert("vendor.iface_out".into(),"interface_out".into());
-        cm.field_map.insert("vendor.bytes_in".into(), "bytes_in".into());
-        cm.field_map.insert("vendor.bytes_out".into(),"bytes_out".into());
-        cm.field_map.insert("vendor.proto".into(),    "network_protocol".into());
-        cm.field_map.insert("vendor.dst_host".into(), "dst_hostname".into());
+        cm.field_map
+            .insert("vendor.nat_src".into(), "nat_src_ip".into());
+        cm.field_map
+            .insert("vendor.nat_dst".into(), "nat_dst_ip".into());
+        cm.field_map
+            .insert("vendor.nsp".into(), "nat_src_port".into());
+        cm.field_map
+            .insert("vendor.ndp".into(), "nat_dst_port".into());
+        cm.field_map
+            .insert("vendor.iface_in".into(), "interface_in".into());
+        cm.field_map
+            .insert("vendor.iface_out".into(), "interface_out".into());
+        cm.field_map
+            .insert("vendor.bytes_in".into(), "bytes_in".into());
+        cm.field_map
+            .insert("vendor.bytes_out".into(), "bytes_out".into());
+        cm.field_map
+            .insert("vendor.proto".into(), "network_protocol".into());
+        cm.field_map
+            .insert("vendor.dst_host".into(), "dst_hostname".into());
         let (_, rec) = transform(raw, "db", &[], &cm).unwrap();
-        assert_eq!(rec.nat_src_ip,       "10.1.1.1",       "nat_src_ip");
-        assert_eq!(rec.nat_dst_ip,       "10.2.2.2",       "nat_dst_ip");
-        assert_eq!(rec.nat_src_port,     40000u16,          "nat_src_port");
-        assert_eq!(rec.nat_dst_port,     443u16,            "nat_dst_port");
-        assert_eq!(rec.interface_in,     "eth0",            "interface_in");
-        assert_eq!(rec.interface_out,    "eth1",            "interface_out");
-        assert_eq!(rec.bytes_in,         1024u64,           "bytes_in");
-        assert_eq!(rec.bytes_out,        2048u64,           "bytes_out");
-        assert_eq!(rec.network_protocol, "udp",             "network_protocol");
-        assert_eq!(rec.dst_hostname,     "internal.corp",   "dst_hostname");
+        assert_eq!(rec.nat_src_ip, "10.1.1.1", "nat_src_ip");
+        assert_eq!(rec.nat_dst_ip, "10.2.2.2", "nat_dst_ip");
+        assert_eq!(rec.nat_src_port, 40000u16, "nat_src_port");
+        assert_eq!(rec.nat_dst_port, 443u16, "nat_dst_port");
+        assert_eq!(rec.interface_in, "eth0", "interface_in");
+        assert_eq!(rec.interface_out, "eth1", "interface_out");
+        assert_eq!(rec.bytes_in, 1024u64, "bytes_in");
+        assert_eq!(rec.bytes_out, 2048u64, "bytes_out");
+        assert_eq!(rec.network_protocol, "udp", "network_protocol");
+        assert_eq!(rec.dst_hostname, "internal.corp", "dst_hostname");
         let ext: Value = serde_json::from_str(&rec.extensions).unwrap();
-        assert!(ext.as_object().unwrap().is_empty(), "extensions should be empty");
+        assert!(
+            ext.as_object().unwrap().is_empty(),
+            "extensions should be empty"
+        );
     }
     #[test]
     fn transform_custom_nat_wont_override_existing() {
@@ -879,9 +968,13 @@ mod tests {
             }
         }"#;
         let mut cm = no_custom();
-        cm.field_map.insert("vendor.proto".into(), "network_protocol".into());
+        cm.field_map
+            .insert("vendor.proto".into(), "network_protocol".into());
         let (_, rec) = transform(raw, "db", &[], &cm).unwrap();
-        assert_eq!(rec.network_protocol, "tcp", "built-in should win, not custom");
+        assert_eq!(
+            rec.network_protocol, "tcp",
+            "built-in should win, not custom"
+        );
     }
     #[test]
     fn transform_json_decoder_numeric_fields() {
@@ -901,24 +994,28 @@ mod tests {
             }
         }"#;
         let mut cm = no_custom();
-        cm.field_map.insert("client_ip".into(),   "src_ip".into());
-        cm.field_map.insert("server_ip".into(),   "dst_ip".into());
+        cm.field_map.insert("client_ip".into(), "src_ip".into());
+        cm.field_map.insert("server_ip".into(), "dst_ip".into());
         cm.field_map.insert("client_port".into(), "src_port".into());
         cm.field_map.insert("server_port".into(), "dst_port".into());
-        cm.field_map.insert("bytes_recv".into(),  "bytes_in".into());
-        cm.field_map.insert("bytes_sent".into(),  "bytes_out".into());
-        cm.field_map.insert("username".into(),    "actor_user".into());
-        cm.field_map.insert("risk".into(),        "risk_score".into());
+        cm.field_map.insert("bytes_recv".into(), "bytes_in".into());
+        cm.field_map.insert("bytes_sent".into(), "bytes_out".into());
+        cm.field_map.insert("username".into(), "actor_user".into());
+        cm.field_map.insert("risk".into(), "risk_score".into());
         let (_, rec) = transform(raw, "db", &[], &cm).unwrap();
-        assert_eq!(rec.src_ip,    "172.16.0.5", "src_ip from JSON number decoder");
-        assert_eq!(rec.dst_ip,    "10.0.1.1",   "dst_ip");
-        assert_eq!(rec.src_port,  54321u16,      "src_port from JSON number");
-        assert_eq!(rec.dst_port,  443u16,        "dst_port from JSON number");
-        assert_eq!(rec.bytes_in,  10240u64,      "bytes_in from JSON number");
-        assert_eq!(rec.bytes_out, 2048u64,       "bytes_out from JSON number");
-        assert_eq!(rec.actor_user,"alice",        "actor_user");
+        assert_eq!(rec.src_ip, "172.16.0.5", "src_ip from JSON number decoder");
+        assert_eq!(rec.dst_ip, "10.0.1.1", "dst_ip");
+        assert_eq!(rec.src_port, 54321u16, "src_port from JSON number");
+        assert_eq!(rec.dst_port, 443u16, "dst_port from JSON number");
+        assert_eq!(rec.bytes_in, 10240u64, "bytes_in from JSON number");
+        assert_eq!(rec.bytes_out, 2048u64, "bytes_out from JSON number");
+        assert_eq!(rec.actor_user, "alice", "actor_user");
         let ext: Value = serde_json::from_str(&rec.extensions).unwrap();
-        assert_eq!(ext["risk_score"].as_str(), Some("99"), "numeric → extensions");
+        assert_eq!(
+            ext["risk_score"].as_str(),
+            Some("99"),
+            "numeric → extensions"
+        );
     }
     #[test]
     fn transform_json_decoder_nested_object() {
@@ -943,22 +1040,31 @@ mod tests {
             }
         }"#;
         let mut cm = no_custom();
-        cm.field_map.insert("connection.src".into(),   "src_ip".into());
-        cm.field_map.insert("connection.dst".into(),   "dst_ip".into());
-        cm.field_map.insert("connection.port".into(),  "dst_port".into());
-        cm.field_map.insert("auth.user".into(),        "actor_user".into());
-        cm.field_map.insert("auth.domain".into(),      "domain".into());
-        cm.field_map.insert("threat.score".into(),     "threat_score".into());
-        cm.field_map.insert("threat.name".into(),      "rule_name".into());
+        cm.field_map
+            .insert("connection.src".into(), "src_ip".into());
+        cm.field_map
+            .insert("connection.dst".into(), "dst_ip".into());
+        cm.field_map
+            .insert("connection.port".into(), "dst_port".into());
+        cm.field_map.insert("auth.user".into(), "actor_user".into());
+        cm.field_map.insert("auth.domain".into(), "domain".into());
+        cm.field_map
+            .insert("threat.score".into(), "threat_score".into());
+        cm.field_map
+            .insert("threat.name".into(), "rule_name".into());
         let (_, rec) = transform(raw, "db", &[], &cm).unwrap();
-        assert_eq!(rec.src_ip,    "192.0.2.10",   "nested src_ip");
-        assert_eq!(rec.dst_ip,    "198.51.100.1", "nested dst_ip");
-        assert_eq!(rec.dst_port,  8443u16,         "nested numeric port");
-        assert_eq!(rec.actor_user,"bob",            "nested actor_user");
-        assert_eq!(rec.domain,    "CORP",           "nested domain");
-        assert_eq!(rec.rule_name, "BruteForce",     "nested rule_name");
+        assert_eq!(rec.src_ip, "192.0.2.10", "nested src_ip");
+        assert_eq!(rec.dst_ip, "198.51.100.1", "nested dst_ip");
+        assert_eq!(rec.dst_port, 8443u16, "nested numeric port");
+        assert_eq!(rec.actor_user, "bob", "nested actor_user");
+        assert_eq!(rec.domain, "CORP", "nested domain");
+        assert_eq!(rec.rule_name, "BruteForce", "nested rule_name");
         let ext: Value = serde_json::from_str(&rec.extensions).unwrap();
-        assert_eq!(ext["threat_score"].as_str(), Some("75"), "nested number → extensions");
+        assert_eq!(
+            ext["threat_score"].as_str(),
+            Some("75"),
+            "nested number → extensions"
+        );
     }
     #[test]
     fn custom_mappings_full_toml_roundtrip() {
@@ -983,10 +1089,22 @@ ocsf_version = "1.7.0"
         let cm = CustomMappings::load(&tmp).expect("TOML must parse");
 
         assert_eq!(cm.ocsf_version, "1.7.0");
-        assert_eq!(cm.field_map.get("myapp.client_addr").map(String::as_str),  Some("src_ip"));
-        assert_eq!(cm.field_map.get("myapp.server_addr").map(String::as_str),  Some("dst_ip"));
-        assert_eq!(cm.field_map.get("myapp.current_user").map(String::as_str), Some("actor_user"));
-        assert_eq!(cm.field_map.get("myapp.risk_score").map(String::as_str),   Some("vendor_risk_score"));
+        assert_eq!(
+            cm.field_map.get("myapp.client_addr").map(String::as_str),
+            Some("src_ip")
+        );
+        assert_eq!(
+            cm.field_map.get("myapp.server_addr").map(String::as_str),
+            Some("dst_ip")
+        );
+        assert_eq!(
+            cm.field_map.get("myapp.current_user").map(String::as_str),
+            Some("actor_user")
+        );
+        assert_eq!(
+            cm.field_map.get("myapp.risk_score").map(String::as_str),
+            Some("vendor_risk_score")
+        );
 
         let raw = r#"{
             "agent":{"id":"011","name":"myapp-server","ip":"10.0.0.1"},
@@ -1005,15 +1123,15 @@ ocsf_version = "1.7.0"
             }
         }"#;
         let (_, rec) = transform(raw, "db", &[], &cm).unwrap();
-        assert_eq!(rec.src_ip,           "192.168.1.50",  "src_ip");
-        assert_eq!(rec.dst_ip,           "10.0.0.5",      "dst_ip");
-        assert_eq!(rec.actor_user,       "alice",          "actor_user");
-        assert_eq!(rec.network_protocol, "udp",            "network_protocol");
-        assert_eq!(rec.nat_src_ip,       "203.0.113.1",   "nat_src_ip");
-        assert_eq!(rec.interface_in,     "eth0",           "interface_in");
-        assert_eq!(rec.bytes_in,         1024u64,          "bytes_in");
-        assert_eq!(rec.bytes_out,        2048u64,          "bytes_out");
-        assert_eq!(rec.dst_hostname,     "backend.corp",   "dst_hostname");
+        assert_eq!(rec.src_ip, "192.168.1.50", "src_ip");
+        assert_eq!(rec.dst_ip, "10.0.0.5", "dst_ip");
+        assert_eq!(rec.actor_user, "alice", "actor_user");
+        assert_eq!(rec.network_protocol, "udp", "network_protocol");
+        assert_eq!(rec.nat_src_ip, "203.0.113.1", "nat_src_ip");
+        assert_eq!(rec.interface_in, "eth0", "interface_in");
+        assert_eq!(rec.bytes_in, 1024u64, "bytes_in");
+        assert_eq!(rec.bytes_out, 2048u64, "bytes_out");
+        assert_eq!(rec.dst_hostname, "backend.corp", "dst_hostname");
         let ext: Value = serde_json::from_str(&rec.extensions).unwrap();
         assert_eq!(ext["vendor_risk_score"].as_str(), Some("87"), "extension");
 
@@ -1032,7 +1150,10 @@ ocsf_version = "1.7.0"
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
         let u: Value = serde_json::from_str(&rec.unmapped).unwrap();
-        assert!(u.get("custom_toplevel").is_some(), "missing custom_toplevel");
+        assert!(
+            u.get("custom_toplevel").is_some(),
+            "missing custom_toplevel"
+        );
         assert!(rec.event_data.contains("known_field"));
         assert!(rec.event_data.contains("extra_data"));
     }
@@ -1051,9 +1172,13 @@ ocsf_version = "1.7.0"
 
     #[test]
     fn classify_sshd_is_authentication() {
-        let c = classify_event(&["sshd", "authentication_failed"], "sshd", "/var/log/auth.log");
-        assert_eq!(c.class_uid,    3002);
-        assert_eq!(c.class_name,   "Authentication");
+        let c = classify_event(
+            &["sshd", "authentication_failed"],
+            "sshd",
+            "/var/log/auth.log",
+        );
+        assert_eq!(c.class_uid, 3002);
+        assert_eq!(c.class_name, "Authentication");
         assert_eq!(c.category_uid, 3);
     }
     #[test]
@@ -1064,13 +1189,17 @@ ocsf_version = "1.7.0"
     #[test]
     fn classify_syscheck_is_file_activity() {
         let c = classify_event(&["syscheck", "syscheck_file"], "syscheck_file", "syscheck");
-        assert_eq!(c.class_uid,  1001);
+        assert_eq!(c.class_uid, 1001);
         assert_eq!(c.class_name, "File System Activity");
     }
     #[test]
     fn classify_sysmon_process_is_process_activity() {
-        let c = classify_event(&["sysmon", "sysmon_process", "process_creation"], "sysmon", "EventChannel");
-        assert_eq!(c.class_uid,  1006);
+        let c = classify_event(
+            &["sysmon", "sysmon_process", "process_creation"],
+            "sysmon",
+            "EventChannel",
+        );
+        assert_eq!(c.class_uid, 1006);
         assert_eq!(c.class_name, "Process Activity");
     }
     #[test]
@@ -1094,7 +1223,7 @@ ocsf_version = "1.7.0"
     #[test]
     fn classify_nginx_is_http() {
         let c = classify_event(&["web", "web-log"], "nginx", "/var/log/nginx/access.log");
-        assert_eq!(c.class_uid,  4002);
+        assert_eq!(c.class_uid, 4002);
         assert_eq!(c.class_name, "HTTP Activity");
     }
     #[test]
@@ -1105,7 +1234,7 @@ ocsf_version = "1.7.0"
     #[test]
     fn classify_fortigate_is_network() {
         let c = classify_event(&["firewall", "fortigate"], "fortigate-traffic", "syslog");
-        assert_eq!(c.class_uid,  4001);
+        assert_eq!(c.class_uid, 4001);
         assert_eq!(c.class_name, "Network Activity");
     }
     #[test]
@@ -1127,7 +1256,7 @@ ocsf_version = "1.7.0"
     #[test]
     fn classify_default_is_detection_finding() {
         let c = classify_event(&["rootkit", "windows"], "rootcheck", "");
-        assert_eq!(c.class_uid,  2004);
+        assert_eq!(c.class_uid, 2004);
         assert_eq!(c.class_name, "Detection Finding");
     }
 
@@ -1209,10 +1338,10 @@ ocsf_version = "1.7.0"
             "location":"/var/log/auth.log"
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.class_uid,    3002);
-        assert_eq!(rec.class_name,   "Authentication");
+        assert_eq!(rec.class_uid, 3002);
+        assert_eq!(rec.class_name, "Authentication");
         assert_eq!(rec.category_uid, 3);
-        assert_eq!(rec.category_name,"Identity & Access Management");
+        assert_eq!(rec.category_name, "Identity & Access Management");
     }
     #[test]
     fn transform_suricata_has_network_class() {
@@ -1244,7 +1373,11 @@ ocsf_version = "1.7.0"
         assert_eq!(rec.class_uid, 3002);
         assert_eq!(rec.activity_id, 1, "Logon = 1");
         assert_eq!(rec.activity_name, "Logon");
-        assert_eq!(rec.type_uid, 3002 * 100 + 1, "type_uid must be class_uid*100+activity_id");
+        assert_eq!(
+            rec.type_uid,
+            3002 * 100 + 1,
+            "type_uid must be class_uid*100+activity_id"
+        );
     }
     #[test]
     fn network_activity_allow_maps_to_open() {
@@ -1256,10 +1389,10 @@ ocsf_version = "1.7.0"
             "data":{"srcip":"1.2.3.4","action":"allow"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.class_uid,     4001);
-        assert_eq!(rec.activity_id,   1, "allow → Open(1)");
+        assert_eq!(rec.class_uid, 4001);
+        assert_eq!(rec.activity_id, 1, "allow → Open(1)");
         assert_eq!(rec.activity_name, "Open");
-        assert_eq!(rec.type_uid,      400101);
+        assert_eq!(rec.type_uid, 400101);
     }
     #[test]
     fn network_activity_deny_maps_to_refuse() {
@@ -1271,9 +1404,9 @@ ocsf_version = "1.7.0"
             "data":{"srcip":"1.2.3.4","action":"deny"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.activity_id,   5, "deny → Refuse(5)");
+        assert_eq!(rec.activity_id, 5, "deny → Refuse(5)");
         assert_eq!(rec.activity_name, "Refuse");
-        assert_eq!(rec.type_uid,      400105);
+        assert_eq!(rec.type_uid, 400105);
     }
     #[test]
     fn network_activity_no_action_is_traffic() {
@@ -1284,7 +1417,7 @@ ocsf_version = "1.7.0"
             "decoder":{"name":"iptables"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.class_uid,   4001);
+        assert_eq!(rec.class_uid, 4001);
         assert_eq!(rec.activity_id, 6, "no action → Traffic(6)");
         assert_eq!(rec.activity_name, "Traffic");
     }
@@ -1297,10 +1430,10 @@ ocsf_version = "1.7.0"
             "decoder":{"name":"dhcpd"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.class_uid,     4004);
-        assert_eq!(rec.activity_id,   1, "DHCP default → Assign(1)");
+        assert_eq!(rec.class_uid, 4004);
+        assert_eq!(rec.activity_id, 1, "DHCP default → Assign(1)");
         assert_eq!(rec.activity_name, "Assign");
-        assert_eq!(rec.type_uid,      400401);
+        assert_eq!(rec.type_uid, 400401);
     }
     #[test]
     fn fim_added_is_create() {
@@ -1312,8 +1445,8 @@ ocsf_version = "1.7.0"
             "syscheck":{"event":"added","path":"/etc/passwd"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.class_uid,     1001);
-        assert_eq!(rec.activity_id,   1, "added → Create(1)");
+        assert_eq!(rec.class_uid, 1001);
+        assert_eq!(rec.activity_id, 1, "added → Create(1)");
         assert_eq!(rec.activity_name, "Create");
     }
     #[test]
@@ -1326,9 +1459,9 @@ ocsf_version = "1.7.0"
             "syscheck":{"event":"modified","path":"/etc/passwd"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.activity_id,   3, "modified → Update(3)");
+        assert_eq!(rec.activity_id, 3, "modified → Update(3)");
         assert_eq!(rec.activity_name, "Update");
-        assert_eq!(rec.type_uid,      100103);
+        assert_eq!(rec.type_uid, 100103);
     }
     #[test]
     fn fim_deleted_is_delete() {
@@ -1340,7 +1473,7 @@ ocsf_version = "1.7.0"
             "syscheck":{"event":"deleted","path":"/etc/passwd"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.activity_id,   4, "deleted → Delete(4)");
+        assert_eq!(rec.activity_id, 4, "deleted → Delete(4)");
         assert_eq!(rec.activity_name, "Delete");
     }
     #[test]
@@ -1353,8 +1486,11 @@ ocsf_version = "1.7.0"
             "decoder":{"name":"groupdel"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.class_uid,     3001);
-        assert_eq!(rec.activity_id,   8,  "groupdel → Delete Group(8), not Delete User(2)");
+        assert_eq!(rec.class_uid, 3001);
+        assert_eq!(
+            rec.activity_id, 8,
+            "groupdel → Delete Group(8), not Delete User(2)"
+        );
         assert_eq!(rec.activity_name, "Delete Group");
     }
     #[test]
@@ -1367,7 +1503,7 @@ ocsf_version = "1.7.0"
             "decoder":{"name":"addgroup"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.activity_id,   7, "addgroup → Create Group(7)");
+        assert_eq!(rec.activity_id, 7, "addgroup → Create Group(7)");
         assert_eq!(rec.activity_name, "Create Group");
     }
 
@@ -1402,7 +1538,10 @@ ocsf_version = "1.7.0"
         let mut out = vec![];
         flatten_to_paths(&v, "", &mut out);
         out.sort();
-        assert_eq!(out, vec![("a".into(), "1".into()), ("b".into(), "2".into())]);
+        assert_eq!(
+            out,
+            vec![("a".into(), "1".into()), ("b".into(), "2".into())]
+        );
     }
     #[test]
     fn flatten_nested_object() {
@@ -1447,55 +1586,91 @@ ocsf_version = "1.7.0"
             let g = UNMAPPED_TRACKER.lock().unwrap();
             g.clone()
         };
-        let new_keys: HashSet<&String> = snapshot_after.keys()
+        let new_keys: HashSet<&String> = snapshot_after
+            .keys()
             .filter(|k| !snapshot_before.contains_key(*k))
             .collect();
-        assert!(!new_keys.contains(&"srcip".to_string()),
-                "srcip is a KNOWN_PATH and must not be recorded as unmapped");
+        assert!(
+            !new_keys.contains(&"srcip".to_string()),
+            "srcip is a KNOWN_PATH and must not be recorded as unmapped"
+        );
     }
     #[test]
     fn unmapped_unknown_path_is_recorded() {
-        let before_count = UNMAPPED_TRACKER.lock().unwrap()
-            .get("my_custom_widget").map(|f| f.count).unwrap_or(0);
+        let before_count = UNMAPPED_TRACKER
+            .lock()
+            .unwrap()
+            .get("my_custom_widget")
+            .map(|f| f.count)
+            .unwrap_or(0);
         let data = serde_json::json!({"my_custom_widget": "xyz"});
         track_unmapped_fields(&data, &no_custom());
-        let after_count = UNMAPPED_TRACKER.lock().unwrap()
-            .get("my_custom_widget").map(|f| f.count).unwrap_or(0);
-        assert_eq!(after_count, before_count + 1,
-            "unknown field must be recorded in UNMAPPED_TRACKER");
+        let after_count = UNMAPPED_TRACKER
+            .lock()
+            .unwrap()
+            .get("my_custom_widget")
+            .map(|f| f.count)
+            .unwrap_or(0);
+        assert_eq!(
+            after_count,
+            before_count + 1,
+            "unknown field must be recorded in UNMAPPED_TRACKER"
+        );
     }
     #[test]
     fn unmapped_custom_mapped_field_not_recorded() {
         let field = "my_mapped_field_xyz";
         let mut cm = no_custom();
         cm.field_map.insert(field.to_string(), "src_ip".to_string());
-        let before = UNMAPPED_TRACKER.lock().unwrap()
-            .get(field).map(|f| f.count).unwrap_or(0);
+        let before = UNMAPPED_TRACKER
+            .lock()
+            .unwrap()
+            .get(field)
+            .map(|f| f.count)
+            .unwrap_or(0);
         let data = serde_json::json!({"my_mapped_field_xyz": "10.0.0.1"});
         track_unmapped_fields(&data, &cm);
-        let after = UNMAPPED_TRACKER.lock().unwrap()
-            .get(field).map(|f| f.count).unwrap_or(0);
-        assert_eq!(after, before, "custom-mapped field must not appear in unmapped tracker");
+        let after = UNMAPPED_TRACKER
+            .lock()
+            .unwrap()
+            .get(field)
+            .map(|f| f.count)
+            .unwrap_or(0);
+        assert_eq!(
+            after, before,
+            "custom-mapped field must not appear in unmapped tracker"
+        );
     }
     #[test]
     fn unmapped_nested_unknown_path_is_recorded() {
         let key = "vendor.info.extra_field_abc123";
-        let before = UNMAPPED_TRACKER.lock().unwrap()
-            .get(key).map(|f| f.count).unwrap_or(0);
+        let before = UNMAPPED_TRACKER
+            .lock()
+            .unwrap()
+            .get(key)
+            .map(|f| f.count)
+            .unwrap_or(0);
         let data = serde_json::json!({"vendor": {"info": {"extra_field_abc123": "v"}}});
         track_unmapped_fields(&data, &no_custom());
-        let after = UNMAPPED_TRACKER.lock().unwrap()
-            .get(key).map(|f| f.count).unwrap_or(0);
+        let after = UNMAPPED_TRACKER
+            .lock()
+            .unwrap()
+            .get(key)
+            .map(|f| f.count)
+            .unwrap_or(0);
         assert_eq!(after, before + 1);
     }
     #[test]
     fn write_unmapped_report_creates_valid_json() {
         {
             let mut g = UNMAPPED_TRACKER.lock().unwrap();
-            g.insert("test_write_field".to_string(), FieldInfo {
-                count: 7,
-                example: "hello".to_string(),
-            });
+            g.insert(
+                "test_write_field".to_string(),
+                FieldInfo {
+                    count: 7,
+                    example: "hello".to_string(),
+                },
+            );
         }
         let tmp = std::env::temp_dir().join("wazuh_ocsf_unmapped_test.json");
         write_unmapped_report(&tmp);
@@ -1503,7 +1678,8 @@ ocsf_version = "1.7.0"
         let v: Value = serde_json::from_str(&txt).expect("must be valid JSON");
         assert!(v.get("fields").is_some(), "must have 'fields' key");
         assert!(
-            v["fields"].as_array()
+            v["fields"]
+                .as_array()
                 .map(|a| a.iter().any(|e| e.as_str() == Some("test_write_field")))
                 .unwrap_or(false),
             "test_write_field must appear in report"
@@ -1536,12 +1712,12 @@ ocsf_version = "1.7.0"
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
         assert_eq!(rec.class_uid, 4001, "VPC Flow must be Network Activity");
-        assert_eq!(rec.src_ip,   "10.1.2.3");
-        assert_eq!(rec.dst_ip,   "10.4.5.6");
+        assert_eq!(rec.src_ip, "10.1.2.3");
+        assert_eq!(rec.dst_ip, "10.4.5.6");
         assert_eq!(rec.src_port, 54321u16);
         assert_eq!(rec.dst_port, 443u16);
         assert_eq!(rec.bytes_in, 2048u64);
-        assert_eq!(rec.action,   "ACCEPT");
+        assert_eq!(rec.action, "ACCEPT");
     }
     #[test]
     fn transform_guardduty_nested_ip() {
@@ -1569,9 +1745,12 @@ ocsf_version = "1.7.0"
             }
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.class_uid, 2002, "GuardDuty must be Vulnerability Finding");
-        assert_eq!(rec.src_ip,   "198.51.100.7");
-        assert_eq!(rec.dst_ip,   "172.16.0.5");
+        assert_eq!(
+            rec.class_uid, 2002,
+            "GuardDuty must be Vulnerability Finding"
+        );
+        assert_eq!(rec.src_ip, "198.51.100.7");
+        assert_eq!(rec.dst_ip, "172.16.0.5");
         assert_eq!(rec.src_port, 4444u16);
         assert_eq!(rec.dst_port, 443u16);
     }
@@ -1598,11 +1777,11 @@ ocsf_version = "1.7.0"
             }
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.class_uid,   3002, "Okta must be Authentication");
-        assert_eq!(rec.src_ip,      "203.0.113.42");
-        assert_eq!(rec.actor_user,  "alice@example.com");
-        assert_eq!(rec.status,      "SUCCESS");
-        assert_eq!(rec.action,      "User login to Okta");
+        assert_eq!(rec.class_uid, 3002, "Okta must be Authentication");
+        assert_eq!(rec.src_ip, "203.0.113.42");
+        assert_eq!(rec.actor_user, "alice@example.com");
+        assert_eq!(rec.status, "SUCCESS");
+        assert_eq!(rec.action, "User login to Okta");
     }
     #[test]
     fn transform_azure_ad_signin() {
@@ -1625,11 +1804,11 @@ ocsf_version = "1.7.0"
             }
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.class_uid,  3002, "Azure AD must be Authentication");
-        assert_eq!(rec.src_ip,     "203.0.113.99");
+        assert_eq!(rec.class_uid, 3002, "Azure AD must be Authentication");
+        assert_eq!(rec.src_ip, "203.0.113.99");
         assert_eq!(rec.actor_user, "bob@corp.onmicrosoft.com");
-        assert_eq!(rec.action,     "Sign-in activity");
-        assert_eq!(rec.status,     "0");
+        assert_eq!(rec.action, "Sign-in activity");
+        assert_eq!(rec.status, "0");
     }
     #[test]
     fn transform_zeek_conn_log() {
@@ -1654,8 +1833,8 @@ ocsf_version = "1.7.0"
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
         assert_eq!(rec.class_uid, 4001, "Zeek conn must be Network Activity");
-        assert_eq!(rec.src_ip,   "192.168.1.10");
-        assert_eq!(rec.dst_ip,   "93.184.216.34");
+        assert_eq!(rec.src_ip, "192.168.1.10");
+        assert_eq!(rec.dst_ip, "93.184.216.34");
         assert_eq!(rec.src_port, 52000u16);
         assert_eq!(rec.dst_port, 80u16);
     }
@@ -1686,23 +1865,55 @@ ocsf_version = "1.7.0"
             }
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.class_uid,    1001,         "must be File System Activity");
-        assert_eq!(rec.activity_id,  3,             "modified → Update(3)");
-        assert_eq!(rec.file_name,    "/etc/passwd", "syscheck.path must land in file_name");
+        assert_eq!(rec.class_uid, 1001, "must be File System Activity");
+        assert_eq!(rec.activity_id, 3, "modified → Update(3)");
+        assert_eq!(
+            rec.file_name, "/etc/passwd",
+            "syscheck.path must land in file_name"
+        );
 
         // hashes extracted to extensions
         let ext: Value = serde_json::from_str(&rec.extensions).unwrap();
-        assert_eq!(ext["fim_md5"].as_str(),    Some("abc123"),  "fim_md5 in extensions");
-        assert_eq!(ext["fim_sha1"].as_str(),   Some("def456"),  "fim_sha1 in extensions");
-        assert_eq!(ext["fim_sha256"].as_str(), Some("ghi789"),  "fim_sha256 in extensions");
-        assert_eq!(ext["fim_size"].as_str(),   Some("1234"),    "fim_size in extensions");
-        assert_eq!(ext["fim_mode"].as_str(),   Some("scheduled"),"fim_mode in extensions");
-        assert!(ext["fim_changed_attrs"].is_string(),           "fim_changed_attrs in extensions");
+        assert_eq!(
+            ext["fim_md5"].as_str(),
+            Some("abc123"),
+            "fim_md5 in extensions"
+        );
+        assert_eq!(
+            ext["fim_sha1"].as_str(),
+            Some("def456"),
+            "fim_sha1 in extensions"
+        );
+        assert_eq!(
+            ext["fim_sha256"].as_str(),
+            Some("ghi789"),
+            "fim_sha256 in extensions"
+        );
+        assert_eq!(
+            ext["fim_size"].as_str(),
+            Some("1234"),
+            "fim_size in extensions"
+        );
+        assert_eq!(
+            ext["fim_mode"].as_str(),
+            Some("scheduled"),
+            "fim_mode in extensions"
+        );
+        assert!(
+            ext["fim_changed_attrs"].is_string(),
+            "fim_changed_attrs in extensions"
+        );
 
         // syscheck must NOT appear in unmapped (was leaking — BUG FIX)
         let u: Value = serde_json::from_str(&rec.unmapped).unwrap();
-        assert!(u.get("syscheck").is_none(),  "syscheck must NOT be in unmapped");
-        assert!(u.get("full_log").is_none(),  "full_log must NOT be in unmapped");
+        assert!(
+            u.get("syscheck").is_none(),
+            "syscheck must NOT be in unmapped"
+        );
+        assert!(
+            u.get("full_log").is_none(),
+            "full_log must NOT be in unmapped"
+        );
     }
 
     #[test]
@@ -1716,10 +1927,14 @@ ocsf_version = "1.7.0"
             "syscheck":{"event":"added","path":"/tmp/malware.sh","mode":"realtime"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.file_name,   "/tmp/malware.sh", "path from syscheck.path");
-        assert_eq!(rec.activity_id, 1,                 "added → Create(1)");
+        assert_eq!(rec.file_name, "/tmp/malware.sh", "path from syscheck.path");
+        assert_eq!(rec.activity_id, 1, "added → Create(1)");
         let ext: Value = serde_json::from_str(&rec.extensions).unwrap();
-        assert_eq!(ext["fim_mode"].as_str(), Some("realtime"), "fim_mode in extensions");
+        assert_eq!(
+            ext["fim_mode"].as_str(),
+            Some("realtime"),
+            "fim_mode in extensions"
+        );
     }
 
     #[test]
@@ -1737,8 +1952,10 @@ ocsf_version = "1.7.0"
         let mut cm = no_custom();
         cm.field_map.insert("filename".into(), "file_name".into());
         let (_, rec) = transform(raw, "db", &[], &cm).unwrap();
-        assert_eq!(rec.file_name, "/data/from_data_section",
-            "data section wins over syscheck.path");
+        assert_eq!(
+            rec.file_name, "/data/from_data_section",
+            "data section wins over syscheck.path"
+        );
     }
 
     // ── predecoder extraction ─────────────────────────────────────────────
@@ -1760,15 +1977,25 @@ ocsf_version = "1.7.0"
             "full_log":"Mar 13 10:00:00 webserver01.corp.local sshd[1234]: Failed password"
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.src_hostname, "webserver01.corp.local",
-            "predecoder.hostname must populate src_hostname");
-        assert_eq!(rec.app_name,     "sshd",
-            "predecoder.program_name must populate app_name");
+        assert_eq!(
+            rec.src_hostname, "webserver01.corp.local",
+            "predecoder.hostname must populate src_hostname"
+        );
+        assert_eq!(
+            rec.app_name, "sshd",
+            "predecoder.program_name must populate app_name"
+        );
 
         // predecoder must NOT appear in unmapped (was leaking — BUG FIX)
         let u: Value = serde_json::from_str(&rec.unmapped).unwrap();
-        assert!(u.get("predecoder").is_none(),   "predecoder must NOT be in unmapped");
-        assert!(u.get("full_log").is_none(),     "full_log must NOT be in unmapped");
+        assert!(
+            u.get("predecoder").is_none(),
+            "predecoder must NOT be in unmapped"
+        );
+        assert!(
+            u.get("full_log").is_none(),
+            "full_log must NOT be in unmapped"
+        );
     }
 
     #[test]
@@ -1785,8 +2012,10 @@ ocsf_version = "1.7.0"
         let mut cm = no_custom();
         cm.field_map.insert("srchost".into(), "src_hostname".into());
         let (_, rec) = transform(raw, "db", &[], &cm).unwrap();
-        assert_eq!(rec.src_hostname, "actual-source.corp",
-            "data-derived src_hostname wins over predecoder.hostname");
+        assert_eq!(
+            rec.src_hostname, "actual-source.corp",
+            "data-derived src_hostname wins over predecoder.hostname"
+        );
     }
 
     #[test]
@@ -1802,8 +2031,14 @@ ocsf_version = "1.7.0"
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
         let u: Value = serde_json::from_str(&rec.unmapped).unwrap();
-        assert!(u.get("previous_output").is_none(), "previous_output must NOT be in unmapped");
-        assert!(u.get("previous_log").is_none(),    "previous_log must NOT be in unmapped");
+        assert!(
+            u.get("previous_output").is_none(),
+            "previous_output must NOT be in unmapped"
+        );
+        assert!(
+            u.get("previous_log").is_none(),
+            "previous_log must NOT be in unmapped"
+        );
         // But truly unknown top-level keys still must appear
     }
 
@@ -1819,8 +2054,10 @@ ocsf_version = "1.7.0"
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
         let u: Value = serde_json::from_str(&rec.unmapped).unwrap();
-        assert!(u.get("custom_vendor_extension").is_some(),
-            "unknown top-level key must still be captured in unmapped");
+        assert!(
+            u.get("custom_vendor_extension").is_some(),
+            "unknown top-level key must still be captured in unmapped"
+        );
     }
 
     // ── OCSF 1.7.0 schema validator unit tests ────────────────────────────
@@ -1836,8 +2073,10 @@ ocsf_version = "1.7.0"
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
         let violations = crate::validator::validate_ocsf_record(&rec);
-        assert!(violations.is_empty(),
-            "valid sshd auth record must have 0 OCSF violations, got: {violations:?}");
+        assert!(
+            violations.is_empty(),
+            "valid sshd auth record must have 0 OCSF violations, got: {violations:?}"
+        );
     }
 
     #[test]
@@ -1845,34 +2084,41 @@ ocsf_version = "1.7.0"
         // Every classifier path must produce a schema-valid record
         let test_cases: &[(&str, &str)] = &[
             // (rule groups JSON array, decoder)
-            (r#"["syscheck","syscheck_file"]"#,        "syscheck"),
-            (r#"["sysmon","sysmon_process","process_creation"]"#, "sysmon"),
-            (r#"["vulnerability-detector"]"#,          "vulnerability-detector"),
-            (r#"["sca"]"#,                             "sca"),
-            (r#"["adduser","linux_account"]"#,         "adduser"),
-            (r#"["sshd","authentication_failed"]"#,    "sshd"),
-            (r#"["firewall","fortigate"]"#,             "fortigate-traffic"),
-            (r#"["web","web-log"]"#,                   "nginx"),
-            (r#"["dns"]"#,                             "named"),
-            (r#"["dhcp"]"#,                            "dhcpd"),
-            (r#"["rootkit"]"#,                         "rootcheck"),
-            (r#"["amazon-vpcflow"]"#,                  "aws-vpcflow"),
-            (r#"["amazon-guardduty"]"#,                "aws-guardduty"),
-            (r#"["okta"]"#,                            "okta"),
-            (r#"["zeek"]"#,                            "zeek"),
+            (r#"["syscheck","syscheck_file"]"#, "syscheck"),
+            (
+                r#"["sysmon","sysmon_process","process_creation"]"#,
+                "sysmon",
+            ),
+            (r#"["vulnerability-detector"]"#, "vulnerability-detector"),
+            (r#"["sca"]"#, "sca"),
+            (r#"["adduser","linux_account"]"#, "adduser"),
+            (r#"["sshd","authentication_failed"]"#, "sshd"),
+            (r#"["firewall","fortigate"]"#, "fortigate-traffic"),
+            (r#"["web","web-log"]"#, "nginx"),
+            (r#"["dns"]"#, "named"),
+            (r#"["dhcp"]"#, "dhcpd"),
+            (r#"["rootkit"]"#, "rootcheck"),
+            (r#"["amazon-vpcflow"]"#, "aws-vpcflow"),
+            (r#"["amazon-guardduty"]"#, "aws-guardduty"),
+            (r#"["okta"]"#, "okta"),
+            (r#"["zeek"]"#, "zeek"),
         ];
         for (groups_json, decoder) in test_cases {
-            let raw = format!(r#"{{
+            let raw = format!(
+                r#"{{
                 "@timestamp":"2024-01-01T00:00:00Z",
                 "agent":{{"id":"1","name":"host","ip":""}},
                 "rule":{{"id":"1","description":"test","level":5,"groups":{groups_json}}},
                 "decoder":{{"name":"{decoder}"}}
-            }}"#);
+            }}"#
+            );
             let (_, rec) = transform(&raw, "db", &[], &no_custom())
                 .unwrap_or_else(|| panic!("transform failed for decoder={decoder}"));
             let violations = crate::validator::validate_ocsf_record(&rec);
-            assert!(violations.is_empty(),
-                "decoder={decoder} groups={groups_json} → violations: {violations:?}");
+            assert!(
+                violations.is_empty(),
+                "decoder={decoder} groups={groups_json} → violations: {violations:?}"
+            );
         }
     }
 
@@ -1880,20 +2126,22 @@ ocsf_version = "1.7.0"
     fn ocsf_type_uid_always_derived_correctly() {
         // Exhaustive check: type_uid == class_uid*100 + activity_id for every class path
         let test_cases: &[(&str, &str)] = &[
-            (r#"["syscheck","syscheck_file"]"#,        "syscheck"),
-            (r#"["sshd","authentication_failed"]"#,    "sshd"),
-            (r#"["firewall","iptables"]"#,              "iptables"),
-            (r#"["ids","suricata"]"#,                   "suricata"),
-            (r#"["vulnerability-detector"]"#,           "vulnerability-detector"),
-            (r#"["dns"]"#,                              "named"),
+            (r#"["syscheck","syscheck_file"]"#, "syscheck"),
+            (r#"["sshd","authentication_failed"]"#, "sshd"),
+            (r#"["firewall","iptables"]"#, "iptables"),
+            (r#"["ids","suricata"]"#, "suricata"),
+            (r#"["vulnerability-detector"]"#, "vulnerability-detector"),
+            (r#"["dns"]"#, "named"),
         ];
         for (groups_json, decoder) in test_cases {
-            let raw = format!(r#"{{
+            let raw = format!(
+                r#"{{
                 "@timestamp":"2024-01-01T00:00:00Z",
                 "agent":{{"id":"1","name":"h","ip":""}},
                 "rule":{{"id":"1","description":"t","level":3,"groups":{groups_json}}},
                 "decoder":{{"name":"{decoder}"}}
-            }}"#);
+            }}"#
+            );
             let (_, rec) = transform(&raw, "db", &[], &no_custom()).unwrap();
             assert_eq!(
                 rec.type_uid,
@@ -1926,11 +2174,16 @@ ocsf_version = "1.7.0"
         });
         let raw = serde_json::to_string(&alert).unwrap();
         let result = transform(&raw, "db", &[], &no_custom());
-        assert!(result.is_some(), "large data object must transform without panic");
+        assert!(
+            result.is_some(),
+            "large data object must transform without panic"
+        );
         let (_, rec) = result.unwrap();
         // All unmapped data fields must be captured in event_data
-        assert!(rec.event_data.contains("field_999"),
-            "last key must be in event_data (lossless)");
+        assert!(
+            rec.event_data.contains("field_999"),
+            "last key must be in event_data (lossless)"
+        );
     }
 
     #[test]
@@ -1956,8 +2209,11 @@ ocsf_version = "1.7.0"
         let tbl = crate::transform::routing_table("db", &long, "", &[]);
         // table name part (after "db.ocsf_") must be ≤ 200 chars
         let tbl_part = tbl.strip_prefix("db.ocsf_").unwrap_or(&tbl);
-        assert!(tbl_part.len() <= 200,
-            "table segment must be ≤ 200 chars, was {}", tbl_part.len());
+        assert!(
+            tbl_part.len() <= 200,
+            "table segment must be ≤ 200 chars, was {}",
+            tbl_part.len()
+        );
     }
 
     // ── Wazuh vulnerability detector full round-trip ──────────────────────
@@ -1992,17 +2248,20 @@ ocsf_version = "1.7.0"
             }
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.class_uid,    2002,           "must be Vulnerability Finding");
-        assert_eq!(rec.cve_id,       "CVE-2024-99999");
-        assert_eq!(rec.cvss_score,   9.8f32);
-        assert_eq!(rec.severity_id,  5,               "Critical → severity_id=5");
-        assert_eq!(rec.severity,     "Critical");
-        assert_eq!(rec.app_name,     "openssl",        "package name → app_name");
-        assert_eq!(rec.status,       "Active");
-        assert_eq!(rec.url,          "https://nvd.nist.gov/vuln/detail/CVE-2024-99999");
+        assert_eq!(rec.class_uid, 2002, "must be Vulnerability Finding");
+        assert_eq!(rec.cve_id, "CVE-2024-99999");
+        assert_eq!(rec.cvss_score, 9.8f32);
+        assert_eq!(rec.severity_id, 5, "Critical → severity_id=5");
+        assert_eq!(rec.severity, "Critical");
+        assert_eq!(rec.app_name, "openssl", "package name → app_name");
+        assert_eq!(rec.status, "Active");
+        assert_eq!(rec.url, "https://nvd.nist.gov/vuln/detail/CVE-2024-99999");
         // OCSF validity
         let violations = crate::validator::validate_ocsf_record(&rec);
-        assert!(violations.is_empty(), "vuln record must pass OCSF validation: {violations:?}");
+        assert!(
+            violations.is_empty(),
+            "vuln record must pass OCSF validation: {violations:?}"
+        );
     }
 
     // ── State persistence ─────────────────────────────────────────────────
@@ -2011,11 +2270,14 @@ ocsf_version = "1.7.0"
     fn state_store_save_and_load_roundtrip() {
         let tmp = std::env::temp_dir().join("wazuh_ocsf_state_test.pos");
         let store = crate::state::StateStore::new(tmp.clone());
-        let saved = crate::state::TailState { inode: 12345678, offset: 999999 };
+        let saved = crate::state::TailState {
+            inode: 12345678,
+            offset: 999999,
+        };
         store.save(&saved).expect("save must succeed");
         let loaded = store.load();
-        assert_eq!(loaded.inode,  12345678, "inode must round-trip");
-        assert_eq!(loaded.offset, 999999,   "offset must round-trip");
+        assert_eq!(loaded.inode, 12345678, "inode must round-trip");
+        assert_eq!(loaded.offset, 999999, "offset must round-trip");
         let _ = std::fs::remove_file(&tmp);
     }
 
@@ -2025,7 +2287,7 @@ ocsf_version = "1.7.0"
         let _ = std::fs::remove_file(&tmp); // ensure it doesn't exist
         let store = crate::state::StateStore::new(tmp);
         let s = store.load();
-        assert_eq!(s.inode,  0, "missing state file → inode=0");
+        assert_eq!(s.inode, 0, "missing state file → inode=0");
         assert_eq!(s.offset, 0, "missing state file → offset=0");
     }
 
@@ -2036,7 +2298,7 @@ ocsf_version = "1.7.0"
         let store = crate::state::StateStore::new(tmp.clone());
         let s = store.load();
         // Corrupt data → should not panic, returns 0/0 or partial parse
-        assert!(s.inode  < u64::MAX, "must not panic on corrupt state");
+        assert!(s.inode < u64::MAX, "must not panic on corrupt state");
         assert!(s.offset < u64::MAX, "must not panic on corrupt state");
         let _ = std::fs::remove_file(&tmp);
     }
@@ -2055,9 +2317,9 @@ ocsf_version = "1.7.0"
             "syscheck":{"event":"renamed","path":"/etc/passwd","mode":"realtime"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.activity_id,   5,        "renamed → Rename(5)");
+        assert_eq!(rec.activity_id, 5, "renamed → Rename(5)");
         assert_eq!(rec.activity_name, "Rename", "activity_name must match");
-        assert_eq!(rec.file_name,     "/etc/passwd");
+        assert_eq!(rec.file_name, "/etc/passwd");
     }
 
     #[test]
@@ -2071,7 +2333,7 @@ ocsf_version = "1.7.0"
             "syscheck":{"event":"moved","path":"/tmp/exploit","mode":"realtime"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.activity_id,   5,        "moved → Rename(5)");
+        assert_eq!(rec.activity_id, 5, "moved → Rename(5)");
         assert_eq!(rec.activity_name, "Rename");
     }
 
@@ -2085,8 +2347,8 @@ ocsf_version = "1.7.0"
             "decoder":{"name":"named"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.class_uid,     4003,       "DNS class");
-        assert_eq!(rec.activity_id,   2,          "dns_response group → Response(2)");
+        assert_eq!(rec.class_uid, 4003, "DNS class");
+        assert_eq!(rec.activity_id, 2, "dns_response group → Response(2)");
         assert_eq!(rec.activity_name, "Response");
     }
 
@@ -2100,7 +2362,7 @@ ocsf_version = "1.7.0"
             "decoder":{"name":"named"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.activity_id,   1,      "default DNS → Query(1)");
+        assert_eq!(rec.activity_id, 1, "default DNS → Query(1)");
         assert_eq!(rec.activity_name, "Query");
     }
 
@@ -2115,8 +2377,8 @@ ocsf_version = "1.7.0"
             "data":   {"action":"DHCPRELEASE"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.class_uid,     4004,      "DHCP class");
-        assert_eq!(rec.activity_id,   3,         "DHCPRELEASE → Release(3)");
+        assert_eq!(rec.class_uid, 4004, "DHCP class");
+        assert_eq!(rec.activity_id, 3, "DHCPRELEASE → Release(3)");
         assert_eq!(rec.activity_name, "Release");
     }
 
@@ -2131,7 +2393,7 @@ ocsf_version = "1.7.0"
             "data":   {"action":"DHCPREQUEST"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.activity_id,   2,       "DHCPREQUEST → Renew(2)");
+        assert_eq!(rec.activity_id, 2, "DHCPREQUEST → Renew(2)");
         assert_eq!(rec.activity_name, "Renew");
     }
 
@@ -2146,7 +2408,7 @@ ocsf_version = "1.7.0"
             "data":   {"action":"DHCPNAK"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.activity_id,   4,       "DHCPNAK → Error(4)");
+        assert_eq!(rec.activity_id, 4, "DHCPNAK → Error(4)");
         assert_eq!(rec.activity_name, "Error");
     }
 
@@ -2161,7 +2423,7 @@ ocsf_version = "1.7.0"
             "data":   {"action":"DHCPACK"}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.activity_id,   1,        "DHCPACK → Assign(1)");
+        assert_eq!(rec.activity_id, 1, "DHCPACK → Assign(1)");
         assert_eq!(rec.activity_name, "Assign");
     }
 
@@ -2197,23 +2459,39 @@ ocsf_version = "1.7.0"
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
 
         // Typed OCSF columns
-        assert_eq!(rec.class_uid,      2003, "SCA → Compliance Finding (2003)");
-        assert_eq!(rec.finding_title,  "Ensure Network access: Allow anonymous SID/Name translation is Disabled",
-                   "finding_title should come from sca.check.title, not rule description");
-        assert_eq!(rec.finding_uid,    "19009",
-                   "finding_uid must always be the Wazuh rule_id — never overridden");
-        assert_eq!(rec.status,         "failed",  "status should be sca.check.result");
-        assert_eq!(rec.app_name,       "CIS Microsoft Windows 10 Enterprise Benchmark v1.12.0",
-                   "app_name should be sca.policy");
+        assert_eq!(rec.class_uid, 2003, "SCA → Compliance Finding (2003)");
+        assert_eq!(
+            rec.finding_title,
+            "Ensure Network access: Allow anonymous SID/Name translation is Disabled",
+            "finding_title should come from sca.check.title, not rule description"
+        );
+        assert_eq!(
+            rec.finding_uid, "19009",
+            "finding_uid must always be the Wazuh rule_id — never overridden"
+        );
+        assert_eq!(rec.status, "failed", "status should be sca.check.result");
+        assert_eq!(
+            rec.app_name, "CIS Microsoft Windows 10 Enterprise Benchmark v1.12.0",
+            "app_name should be sca.policy"
+        );
 
         // Extensions
         let ext: serde_json::Value = serde_json::from_str(&rec.extensions).unwrap();
-        assert_eq!(ext["sca_scan_id"],      "1234567890");
-        assert_eq!(ext["sca_check_id"],     "15542",   "sca.check.id goes to extensions, not finding_uid");
-        assert_eq!(ext["sca_cis_control"],  "2.3.10.1");
-        assert_eq!(ext["sca_cis_csc"],      "8.5");
-        assert!(ext["sca_description"].as_str().unwrap().contains("anonymous"));
-        assert!(ext["sca_rationale"].as_str().unwrap().contains("attack surface"));
+        assert_eq!(ext["sca_scan_id"], "1234567890");
+        assert_eq!(
+            ext["sca_check_id"], "15542",
+            "sca.check.id goes to extensions, not finding_uid"
+        );
+        assert_eq!(ext["sca_cis_control"], "2.3.10.1");
+        assert_eq!(ext["sca_cis_csc"], "8.5");
+        assert!(ext["sca_description"]
+            .as_str()
+            .unwrap()
+            .contains("anonymous"));
+        assert!(ext["sca_rationale"]
+            .as_str()
+            .unwrap()
+            .contains("attack surface"));
         assert!(ext["sca_remediation"].as_str().unwrap().contains("GPO"));
     }
 
@@ -2228,10 +2506,16 @@ ocsf_version = "1.7.0"
             "data":{"sca":{"check":{"id":"15543","title":"Audit Policy Check","result":"passed"}}}
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
-        assert_eq!(rec.status,      "passed");
-        assert_eq!(rec.finding_uid, "19101", "finding_uid must always be Wazuh rule_id");
+        assert_eq!(rec.status, "passed");
+        assert_eq!(
+            rec.finding_uid, "19101",
+            "finding_uid must always be Wazuh rule_id"
+        );
         let ext: serde_json::Value = serde_json::from_str(&rec.extensions).unwrap();
-        assert_eq!(ext["sca_check_id"], "15543", "sca.check.id must be in extensions");
+        assert_eq!(
+            ext["sca_check_id"], "15543",
+            "sca.check.id must be in extensions"
+        );
     }
 
     // ── Linux audit / SELinux AVC field mapping ──────────────────────────
@@ -2255,13 +2539,19 @@ ocsf_version = "1.7.0"
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
 
         // file_name from audit.directory.name
-        assert_eq!(rec.file_name,  "snap.yq.yq", "file_name must come from audit.directory.name");
+        assert_eq!(
+            rec.file_name, "snap.yq.yq",
+            "file_name must come from audit.directory.name"
+        );
         // finding_uid is always the Wazuh rule_id — audit.id goes to extensions
-        assert_eq!(rec.finding_uid, "80791", "finding_uid must always be Wazuh rule_id");
+        assert_eq!(
+            rec.finding_uid, "80791",
+            "finding_uid must always be Wazuh rule_id"
+        );
         // audit_type and audit_id in extensions
         let ext: serde_json::Value = serde_json::from_str(&rec.extensions).unwrap();
         assert_eq!(ext["audit_type"], "AVC");
-        assert_eq!(ext["audit_id"],   "46712", "audit.id must be in extensions");
+        assert_eq!(ext["audit_id"], "46712", "audit.id must be in extensions");
     }
 
     // ── Windows SCM param1-7 and event binary in extensions ──────────────
@@ -2289,11 +2579,20 @@ ocsf_version = "1.7.0"
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
         let ext: serde_json::Value = serde_json::from_str(&rec.extensions).unwrap();
 
-        assert_eq!(ext["win_param1"], "Windows Update", "param1 must be in extensions");
-        assert_eq!(ext["win_param2"], "running",        "param2 must be in extensions");
-        assert_eq!(ext["win_param3"], "auto start",     "param3 must be in extensions");
-        assert_eq!(ext["win_event_binary"], "AABBCCDD", "binary must be win_event_binary");
-        assert_eq!(ext["win_event_id"],     "7036",     "event ID still present");
+        assert_eq!(
+            ext["win_param1"], "Windows Update",
+            "param1 must be in extensions"
+        );
+        assert_eq!(ext["win_param2"], "running", "param2 must be in extensions");
+        assert_eq!(
+            ext["win_param3"], "auto start",
+            "param3 must be in extensions"
+        );
+        assert_eq!(
+            ext["win_event_binary"], "AABBCCDD",
+            "binary must be win_event_binary"
+        );
+        assert_eq!(ext["win_event_id"], "7036", "event ID still present");
     }
 
     #[test]
@@ -2308,7 +2607,13 @@ ocsf_version = "1.7.0"
         }"#;
         let (_, rec) = transform(raw, "db", &[], &no_custom()).unwrap();
         let ext: serde_json::Value = serde_json::from_str(&rec.extensions).unwrap();
-        assert!(ext.get("win_param1").is_none(), "win_param1 must not appear when absent");
-        assert!(ext.get("win_event_binary").is_none(), "win_event_binary must not appear when absent");
+        assert!(
+            ext.get("win_param1").is_none(),
+            "win_param1 must not appear when absent"
+        );
+        assert!(
+            ext.get("win_event_binary").is_none(),
+            "win_event_binary must not appear when absent"
+        );
     }
 }

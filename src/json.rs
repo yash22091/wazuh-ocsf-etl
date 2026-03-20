@@ -9,7 +9,7 @@ pub(crate) fn jpath<'a>(root: &'a Value, path: &str) -> &'a str {
     for key in path.split('.') {
         match cur.as_object().and_then(|m| m.get(key)) {
             Some(v) => cur = v,
-            None    => return "",
+            None => return "",
         }
     }
     cur.as_str().unwrap_or("")
@@ -20,9 +20,9 @@ pub(crate) fn jpath<'a>(root: &'a Value, path: &str) -> &'a str {
 pub(crate) fn value_to_str(v: &Value) -> String {
     match v {
         Value::String(s) if !s.is_empty() => s.clone(),
-        Value::Number(n)                  => n.to_string(),
-        Value::Bool(b)                    => b.to_string(),
-        _                                 => String::new(),
+        Value::Number(n) => n.to_string(),
+        Value::Bool(b) => b.to_string(),
+        _ => String::new(),
     }
 }
 
@@ -38,14 +38,18 @@ pub(crate) fn first_str(root: &Value, paths: &[&str]) -> String {
         if let Some(obj) = root.as_object() {
             if let Some(v) = obj.get(p) {
                 if let Some(s) = v.as_str() {
-                    if !s.is_empty() { return s.to_string(); }
+                    if !s.is_empty() {
+                        return s.to_string();
+                    }
                 }
                 continue;
             }
         }
         // 2. Navigate nested path
         let s = jpath(root, p);
-        if !s.is_empty() { return s.to_string(); }
+        if !s.is_empty() {
+            return s.to_string();
+        }
     }
     String::new()
 }
@@ -60,9 +64,13 @@ pub(crate) fn first_port(root: &Value, paths: &[&str]) -> u16 {
                 let v = match val {
                     Value::Number(n) => n.as_u64().map(|v| v.min(65535) as u16),
                     Value::String(s) => s.trim().parse::<u16>().ok(),
-                    _                => None,
+                    _ => None,
                 };
-                if let Some(port) = v { if port > 0 { return port; } }
+                if let Some(port) = v {
+                    if port > 0 {
+                        return port;
+                    }
+                }
                 continue;
             }
         }
@@ -72,16 +80,25 @@ pub(crate) fn first_port(root: &Value, paths: &[&str]) -> u16 {
         for key in p.split('.') {
             match cur.as_object().and_then(|m| m.get(key)) {
                 Some(v) => cur = v,
-                None    => { ok = false; break; }
+                None => {
+                    ok = false;
+                    break;
+                }
             }
         }
-        if !ok { continue; }
+        if !ok {
+            continue;
+        }
         let v = match cur {
             Value::Number(n) => n.as_u64().map(|v| v.min(65535) as u16),
             Value::String(s) => s.trim().parse::<u16>().ok(),
-            _                => None,
+            _ => None,
         };
-        if let Some(p) = v { if p > 0 { return p; } }
+        if let Some(p) = v {
+            if p > 0 {
+                return p;
+            }
+        }
     }
     0
 }
@@ -96,9 +113,11 @@ pub(crate) fn first_u64(root: &Value, paths: &[&str]) -> u64 {
                 let v = match val {
                     Value::Number(n) => n.as_u64(),
                     Value::String(s) => s.trim().parse::<u64>().ok(),
-                    _                => None,
+                    _ => None,
                 };
-                if let Some(n) = v { return n; }
+                if let Some(n) = v {
+                    return n;
+                }
                 continue;
             }
         }
@@ -108,16 +127,23 @@ pub(crate) fn first_u64(root: &Value, paths: &[&str]) -> u64 {
         for key in p.split('.') {
             match cur.as_object().and_then(|m| m.get(key)) {
                 Some(v) => cur = v,
-                None    => { ok = false; break; }
+                None => {
+                    ok = false;
+                    break;
+                }
             }
         }
-        if !ok { continue; }
+        if !ok {
+            continue;
+        }
         let v = match cur {
             Value::Number(n) => n.as_u64(),
             Value::String(s) => s.trim().parse::<u64>().ok(),
-            _                => None,
+            _ => None,
         };
-        if let Some(n) = v { return n; }
+        if let Some(n) = v {
+            return n;
+        }
     }
     0
 }
@@ -132,7 +158,9 @@ pub(crate) fn get_data_field(data: &Value, field: &str) -> String {
     if let Some(obj) = data.as_object() {
         if let Some(v) = obj.get(field) {
             let s = value_to_str(v);
-            if !s.is_empty() { return s; }
+            if !s.is_empty() {
+                return s;
+            }
         }
     }
     // 2. Navigate nested path
@@ -140,7 +168,7 @@ pub(crate) fn get_data_field(data: &Value, field: &str) -> String {
     for key in field.split('.') {
         match cur.as_object().and_then(|m| m.get(key)) {
             Some(v) => cur = v,
-            None    => return String::new(),
+            None => return String::new(),
         }
     }
     value_to_str(cur)

@@ -22,9 +22,9 @@
 //    4004 DHCP Activity          – dhcpd leases
 
 pub(crate) struct OcsfClass {
-    pub(crate) class_uid:     u32,
-    pub(crate) class_name:    &'static str,
-    pub(crate) category_uid:  u32,
+    pub(crate) class_uid: u32,
+    pub(crate) class_name: &'static str,
+    pub(crate) category_uid: u32,
     pub(crate) category_name: &'static str,
 }
 
@@ -35,24 +35,32 @@ pub(crate) struct OcsfClass {
 pub(crate) fn classify_event(groups: &[&str], decoder: &str, location: &str) -> OcsfClass {
     macro_rules! cls {
         ($uid:expr, $name:expr, $cat:expr, $catname:expr) => {
-            OcsfClass { class_uid: $uid, class_name: $name,
-                        category_uid: $cat, category_name: $catname }
+            OcsfClass {
+                class_uid: $uid,
+                class_name: $name,
+                category_uid: $cat,
+                category_name: $catname,
+            }
         };
     }
-    let g  = |s: &str| groups.contains(&s);
+    let g = |s: &str| groups.contains(&s);
     let ga = |ss: &[&str]| ss.iter().any(|&s| groups.contains(&s));
 
     let dec = decoder.to_ascii_lowercase();
     let loc = location.to_ascii_lowercase();
 
     // ── Cloud / Integration sources ──────────────────────────────────────
-    if dec.contains("vpcflow") || dec.contains("vpc-flow")
-        || g("amazon-vpcflow") || g("aws_vpcflow")
+    if dec.contains("vpcflow")
+        || dec.contains("vpc-flow")
+        || g("amazon-vpcflow")
+        || g("aws_vpcflow")
     {
         return cls!(4001, "Network Activity", 4, "Network Activity");
     }
-    if dec.contains("guardduty") || dec.contains("guard-duty")
-        || g("amazon-guardduty") || g("aws-guardduty")
+    if dec.contains("guardduty")
+        || dec.contains("guard-duty")
+        || g("amazon-guardduty")
+        || g("aws-guardduty")
     {
         return cls!(2002, "Vulnerability Finding", 2, "Findings");
     }
@@ -75,15 +83,19 @@ pub(crate) fn classify_event(groups: &[&str], decoder: &str, location: &str) -> 
     if g("aws_s3") || g("s3") {
         return cls!(4002, "HTTP Activity", 4, "Network Activity");
     }
-    if dec.contains("okta") || dec.contains("azure-ad") || dec.contains("azure_ad")
-        || dec.contains("azure-active") || dec.contains("onelogin")
-        || g("okta") || g("azure-ad") || g("azure_ad") || g("onelogin")
+    if dec.contains("okta")
+        || dec.contains("azure-ad")
+        || dec.contains("azure_ad")
+        || dec.contains("azure-active")
+        || dec.contains("onelogin")
+        || g("okta")
+        || g("azure-ad")
+        || g("azure_ad")
+        || g("onelogin")
     {
         return cls!(3002, "Authentication", 3, "Identity & Access Management");
     }
-    if dec.contains("zeek") || dec.contains("bro-ids")
-        || g("zeek") || g("bro")
-    {
+    if dec.contains("zeek") || dec.contains("bro-ids") || g("zeek") || g("bro") {
         return cls!(4001, "Network Activity", 4, "Network Activity");
     }
     if (dec.contains("cloudtrail") || dec.contains("aws-cloudtrail"))
@@ -98,18 +110,25 @@ pub(crate) fn classify_event(groups: &[&str], decoder: &str, location: &str) -> 
     {
         return cls!(1001, "File System Activity", 1, "System Activity");
     }
-    if ga(&["sysmon_process", "process_creation", "process_activity",
-            "execve", "audit_command"])
-        || (g("sysmon") && !ga(&["sysmon_file", "sysmon_network_connection",
-                                 "sysmon_dns_query", "sysmon_registry"]))
+    if ga(&[
+        "sysmon_process",
+        "process_creation",
+        "process_activity",
+        "execve",
+        "audit_command",
+    ]) || (g("sysmon")
+        && !ga(&[
+            "sysmon_file",
+            "sysmon_network_connection",
+            "sysmon_dns_query",
+            "sysmon_registry",
+        ]))
     {
         return cls!(1006, "Process Activity", 1, "System Activity");
     }
 
     // ── Cat 2: Findings ──────────────────────────────────────────────────
-    if ga(&["vulnerability-detector", "vulnerability", "vuls"])
-        || dec.contains("vulnerability")
-    {
+    if ga(&["vulnerability-detector", "vulnerability", "vuls"]) || dec.contains("vulnerability") {
         return cls!(2002, "Vulnerability Finding", 2, "Findings");
     }
     if ga(&["oscap", "sca", "ciscat"]) {
@@ -121,24 +140,40 @@ pub(crate) fn classify_event(groups: &[&str], decoder: &str, location: &str) -> 
     }
 
     // ── Cat 3: Identity & Access Management ─────────────────────────────
-    if ga(&["adduser", "addgroup", "userdel", "groupdel", "usermod",
-            "account_changed", "user_management", "group_management"])
-    {
+    if ga(&[
+        "adduser",
+        "addgroup",
+        "userdel",
+        "groupdel",
+        "usermod",
+        "account_changed",
+        "user_management",
+        "group_management",
+    ]) {
         return cls!(3001, "Account Change", 3, "Identity & Access Management");
     }
-    if ga(&["authentication", "authentication_failed", "authentication_success",
-            "pam", "sudo", "su", "sshd",
-            "win_authentication", "windows_logon"])
-        || dec == "pam" || dec == "sudo" || dec == "su" || dec == "sshd"
-        || dec.ends_with("_auth") || dec.contains("auth")
+    if ga(&[
+        "authentication",
+        "authentication_failed",
+        "authentication_success",
+        "pam",
+        "sudo",
+        "su",
+        "sshd",
+        "win_authentication",
+        "windows_logon",
+    ]) || dec == "pam"
+        || dec == "sudo"
+        || dec == "su"
+        || dec == "sshd"
+        || dec.ends_with("_auth")
+        || dec.contains("auth")
     {
         return cls!(3002, "Authentication", 3, "Identity & Access Management");
     }
 
     // ── Cat 4: Network Activity ──────────────────────────────────────────
-    if ga(&["dns", "sysmon_dns_query"])
-        || dec.contains("dns") || dec.contains("named")
-    {
+    if ga(&["dns", "sysmon_dns_query"]) || dec.contains("dns") || dec.contains("named") {
         return cls!(4003, "DNS Activity", 4, "Network Activity");
     }
     if g("dhcp") || dec.contains("dhcp") {
@@ -148,21 +183,47 @@ pub(crate) fn classify_event(groups: &[&str], decoder: &str, location: &str) -> 
     if dec.contains("cloudflare") || g("WAF") || g("Cloudflare") || g("cloudflare") {
         return cls!(4002, "HTTP Activity", 4, "Network Activity");
     }
-    if ga(&["web", "web-log", "web_accesslog", "web_attack",
-            "apache", "nginx", "iis", "squid", "haproxy"])
-        || dec.contains("apache")  || dec.contains("nginx")
-        || dec.contains("iis")     || dec.contains("squid")
-        || loc.ends_with("access.log") || loc.contains("access_log")
+    if ga(&[
+        "web",
+        "web-log",
+        "web_accesslog",
+        "web_attack",
+        "apache",
+        "nginx",
+        "iis",
+        "squid",
+        "haproxy",
+    ]) || dec.contains("apache")
+        || dec.contains("nginx")
+        || dec.contains("iis")
+        || dec.contains("squid")
+        || loc.ends_with("access.log")
+        || loc.contains("access_log")
     {
         return cls!(4002, "HTTP Activity", 4, "Network Activity");
     }
-    if ga(&["firewall", "iptables", "ids", "suricata", "snort",
-            "paloalto", "fortigate", "cisco", "pfsense", "checkpoint",
-            "juniper", "netscreen", "sysmon_network_connection"])
-        || dec.contains("fortigate")  || dec.contains("paloalto")
-        || dec.contains("cisco")      || dec.contains("pfsense")
-        || dec.contains("checkpoint") || dec.contains("iptables")
-        || dec.contains("suricata")   || dec.contains("snort")
+    if ga(&[
+        "firewall",
+        "iptables",
+        "ids",
+        "suricata",
+        "snort",
+        "paloalto",
+        "fortigate",
+        "cisco",
+        "pfsense",
+        "checkpoint",
+        "juniper",
+        "netscreen",
+        "sysmon_network_connection",
+    ]) || dec.contains("fortigate")
+        || dec.contains("paloalto")
+        || dec.contains("cisco")
+        || dec.contains("pfsense")
+        || dec.contains("checkpoint")
+        || dec.contains("iptables")
+        || dec.contains("suricata")
+        || dec.contains("snort")
         || dec.contains("netfilter")
     {
         return cls!(4001, "Network Activity", 4, "Network Activity");
@@ -177,11 +238,11 @@ pub(crate) fn classify_event(groups: &[&str], decoder: &str, location: &str) -> 
 pub(crate) fn map_severity(level: u64) -> (u8, &'static str) {
     // OCSF 1.7.0 severity_id: 0=Unknown 1=Informational 2=Low 3=Medium 4=High 5=Critical
     match level {
-        0       => (0, "Unknown"),
-        1..=3   => (1, "Informational"),
-        4..=6   => (2, "Low"),
-        7..=9   => (3, "Medium"),
+        0 => (0, "Unknown"),
+        1..=3 => (1, "Informational"),
+        4..=6 => (2, "Low"),
+        7..=9 => (3, "Medium"),
         10..=12 => (4, "High"),
-        _       => (5, "Critical"),
+        _ => (5, "Critical"),
     }
 }
