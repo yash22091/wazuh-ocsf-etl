@@ -194,7 +194,7 @@ pub(crate) const STANDARD_OCSF_TARGETS: &[&str] = &[
 ];
 
 /// Runtime-ready custom mappings, shared via `Arc<RwLock<_>>`.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct CustomMappings {
     pub ocsf_version: String,
     pub field_map: HashMap<String, String>,
@@ -214,14 +214,6 @@ impl CustomMappings {
         })
     }
 
-    pub fn default() -> Self {
-        Self {
-            ocsf_version: default_ocsf_version(),
-            field_map: HashMap::new(),
-            ocsf_renames: HashMap::new(),
-        }
-    }
-
     /// Returns all `field_map` target values that are NOT standard OCSF typed
     /// columns.  These currently land in `extensions` JSON and are candidates
     /// for automatic ClickHouse column creation.
@@ -231,5 +223,15 @@ impl CustomMappings {
             .filter(|t| !STANDARD_OCSF_TARGETS.contains(&t.as_str()))
             .cloned()
             .collect()
+    }
+}
+
+impl Default for CustomMappings {
+    fn default() -> Self {
+        Self {
+            ocsf_version: default_ocsf_version(),
+            field_map: HashMap::new(),
+            ocsf_renames: HashMap::new(),
+        }
     }
 }
