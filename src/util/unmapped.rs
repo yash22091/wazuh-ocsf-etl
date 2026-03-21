@@ -6,19 +6,14 @@ use once_cell::sync::Lazy;
 use serde_json::Value;
 use tracing::{info, warn};
 
+use super::json::flatten_to_paths;
 use crate::config::CustomMappings;
-use crate::field_paths::{
-    SRC_IP, DST_IP, SRC_PORT, DST_PORT,
-    NAT_SRC_IP, NAT_DST_IP, NAT_SRC_PORT, NAT_DST_PORT,
-    PROTOCOL, BYTES_IN, BYTES_OUT,
-    ACTOR_USER, TARGET_USER, DOMAIN, URL,
-    HTTP_METHOD, HTTP_STATUS, APP_NAME,
-    FILE_NAME, PROCESS_NAME, PROCESS_ID,
-    RULE_NAME, CATEGORY,
-    IFACE_IN, IFACE_OUT, SRC_HOSTNAME, DST_HOSTNAME,
-    ACTION, STATUS,
+use crate::pipeline::field_paths::{
+    ACTION, ACTOR_USER, APP_NAME, BYTES_IN, BYTES_OUT, CATEGORY, DOMAIN, DST_HOSTNAME, DST_IP,
+    DST_PORT, FILE_NAME, HTTP_METHOD, HTTP_STATUS, IFACE_IN, IFACE_OUT, NAT_DST_IP, NAT_DST_PORT,
+    NAT_SRC_IP, NAT_SRC_PORT, PROCESS_ID, PROCESS_NAME, PROTOCOL, RULE_NAME, SRC_HOSTNAME, SRC_IP,
+    SRC_PORT, STATUS, TARGET_USER, URL,
 };
-use crate::json::flatten_to_paths;
 
 // ─── Unmapped-field discovery ─────────────────────────────────────────────────
 
@@ -29,17 +24,39 @@ use crate::json::flatten_to_paths;
 static KNOWN_PATHS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     let mut s = HashSet::new();
     for paths in &[
-        SRC_IP, DST_IP, SRC_PORT, DST_PORT,
-        NAT_SRC_IP, NAT_DST_IP, NAT_SRC_PORT, NAT_DST_PORT,
-        PROTOCOL, BYTES_IN, BYTES_OUT,
-        ACTOR_USER, TARGET_USER, DOMAIN, URL,
-        HTTP_METHOD, HTTP_STATUS, APP_NAME,
-        FILE_NAME, PROCESS_NAME, PROCESS_ID,
-        RULE_NAME, CATEGORY,
-        IFACE_IN, IFACE_OUT, SRC_HOSTNAME, DST_HOSTNAME,
-        ACTION, STATUS,
+        SRC_IP,
+        DST_IP,
+        SRC_PORT,
+        DST_PORT,
+        NAT_SRC_IP,
+        NAT_DST_IP,
+        NAT_SRC_PORT,
+        NAT_DST_PORT,
+        PROTOCOL,
+        BYTES_IN,
+        BYTES_OUT,
+        ACTOR_USER,
+        TARGET_USER,
+        DOMAIN,
+        URL,
+        HTTP_METHOD,
+        HTTP_STATUS,
+        APP_NAME,
+        FILE_NAME,
+        PROCESS_NAME,
+        PROCESS_ID,
+        RULE_NAME,
+        CATEGORY,
+        IFACE_IN,
+        IFACE_OUT,
+        SRC_HOSTNAME,
+        DST_HOSTNAME,
+        ACTION,
+        STATUS,
     ] {
-        for p in *paths { s.insert(*p); }
+        for p in *paths {
+            s.insert(*p);
+        }
     }
 
     // ── Wazuh Vulnerability Detector (natively extracted in transform.rs) ──
@@ -73,7 +90,9 @@ static KNOWN_PATHS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
         "vulnerability.cwe_reference",
         "vulnerability.rationale",
         "vulnerability.scanner.reference",
-    ] { s.insert(p); }
+    ] {
+        s.insert(p);
+    }
 
     // ── Windows Event Log (natively extracted in transform.rs) ─────────────
     for p in &[
@@ -120,58 +139,113 @@ static KNOWN_PATHS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
         "win.eventdata.addressLength",
         "win.eventdata.queryName",
         "win.eventdata.data",
-    ] { s.insert(p); }
+    ] {
+        s.insert(p);
+    }
 
     // ── dpkg / apt Package Audit (natively extracted in transform.rs) ──────
-    for p in &["package", "version", "arch", "dpkg_status"] { s.insert(p); }
+    for p in &["package", "version", "arch", "dpkg_status"] {
+        s.insert(p);
+    }
 
     // ── Process / sudo context (natively extracted in transform.rs) ─────────
-    for p in &["uid", "tty", "pwd"] { s.insert(p); }
+    for p in &["uid", "tty", "pwd"] {
+        s.insert(p);
+    }
 
     // ── Other generic decoder fields (natively extracted in transform.rs) ───
-    for p in &["file", "title", "gid", "home", "shell", "id", "integration"] { s.insert(p); }
+    for p in &["file", "title", "gid", "home", "shell", "id", "integration"] {
+        s.insert(p);
+    }
 
     // ── predecoder fields (natively extracted in transform.rs) ──────────────
-    for p in &["predecoder.hostname", "predecoder.program_name", "predecoder.timestamp"] {
+    for p in &[
+        "predecoder.hostname",
+        "predecoder.program_name",
+        "predecoder.timestamp",
+    ] {
         s.insert(p);
     }
 
     // ── SCA (Security Configuration Assessment) native paths ──────────────
     for p in &[
-        "sca.scan_id", "sca.policy", "sca.policy_id", "sca.description", "sca.file",
-        "sca.score", "sca.total_checks", "sca.passed", "sca.failed", "sca.invalid",
-        "sca.check.id", "sca.check.title", "sca.check.result", "sca.check.description",
-        "sca.check.rationale", "sca.check.remediation", "sca.check.reason",
-        "sca.check.references", "sca.check.command.0", "sca.check.file.0",
-        "sca.check.compliance.cis", "sca.check.compliance.cis_csc",
-        "sca.check.compliance.cis_csc_v7", "sca.check.compliance.cis_csc_v8",
+        "sca.scan_id",
+        "sca.policy",
+        "sca.policy_id",
+        "sca.description",
+        "sca.file",
+        "sca.score",
+        "sca.total_checks",
+        "sca.passed",
+        "sca.failed",
+        "sca.invalid",
+        "sca.check.id",
+        "sca.check.title",
+        "sca.check.result",
+        "sca.check.description",
+        "sca.check.rationale",
+        "sca.check.remediation",
+        "sca.check.reason",
+        "sca.check.references",
+        "sca.check.command.0",
+        "sca.check.file.0",
+        "sca.check.compliance.cis",
+        "sca.check.compliance.cis_csc",
+        "sca.check.compliance.cis_csc_v7",
+        "sca.check.compliance.cis_csc_v8",
         "sca.check.compliance.cmmc_v2.0",
-        "sca.check.compliance.hipaa", "sca.check.compliance.iso_27001-2013",
-        "sca.check.compliance.mitre_mitigations", "sca.check.compliance.mitre_tactics",
-        "sca.check.compliance.mitre_techniques", "sca.check.compliance.nist_sp_800-53",
-        "sca.check.compliance.pci_dss_v3.2.1", "sca.check.compliance.pci_dss_v4.0",
+        "sca.check.compliance.hipaa",
+        "sca.check.compliance.iso_27001-2013",
+        "sca.check.compliance.mitre_mitigations",
+        "sca.check.compliance.mitre_tactics",
+        "sca.check.compliance.mitre_techniques",
+        "sca.check.compliance.nist_sp_800-53",
+        "sca.check.compliance.pci_dss_v3.2.1",
+        "sca.check.compliance.pci_dss_v4.0",
         "sca.check.compliance.soc_2",
-    ] { s.insert(p); }
+    ] {
+        s.insert(p);
+    }
 
     // ── Linux audit AVC context (natively extracted in transform.rs) ────────
     for p in &[
-        "audit.id", "audit.type", "audit.directory.name",
-        "audit.euid", "audit.uid", "audit.gid", "audit.session",
-    ] { s.insert(p); }
+        "audit.id",
+        "audit.type",
+        "audit.directory.name",
+        "audit.euid",
+        "audit.uid",
+        "audit.gid",
+        "audit.session",
+    ] {
+        s.insert(p);
+    }
 
     // ── AWS CloudTrail / integrations (natively extracted in transform.rs) ──
     for p in &[
         // Top-level CloudTrail fields
-        "aws.source_ip_address", "aws.sourceIPAddress",
-        "aws.eventID", "aws.eventTime", "aws.eventType", "aws.eventCategory",
-        "aws.eventVersion", "aws.requestID", "aws.awsRegion",
-        "aws.userAgent", "aws.managementEvent", "aws.readOnly",
-        "aws.recipientAccountId", "aws.sharedEventID",
-        "aws.sessionCredentialFromConsole", "aws.source", "aws.errorMessage",
+        "aws.source_ip_address",
+        "aws.sourceIPAddress",
+        "aws.eventID",
+        "aws.eventTime",
+        "aws.eventType",
+        "aws.eventCategory",
+        "aws.eventVersion",
+        "aws.requestID",
+        "aws.awsRegion",
+        "aws.userAgent",
+        "aws.managementEvent",
+        "aws.readOnly",
+        "aws.recipientAccountId",
+        "aws.sharedEventID",
+        "aws.sessionCredentialFromConsole",
+        "aws.source",
+        "aws.errorMessage",
         "aws.aws_account_id",
         // userIdentity
-        "aws.userIdentity.arn", "aws.userIdentity.type",
-        "aws.userIdentity.invokedBy", "aws.userIdentity.accessKeyId",
+        "aws.userIdentity.arn",
+        "aws.userIdentity.type",
+        "aws.userIdentity.invokedBy",
+        "aws.userIdentity.accessKeyId",
         "aws.userIdentity.credentialId",
         "aws.userIdentity.sessionContext.attributes.creationDate",
         "aws.userIdentity.sessionContext.attributes.mfaAuthenticated",
@@ -181,26 +255,41 @@ static KNOWN_PATHS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
         "aws.userIdentity.sessionContext.sessionIssuer.type",
         "aws.userIdentity.sessionContext.webIdFederationData.federatedProvider",
         // additionalEventData
-        "aws.additionalEventData.UserName", "aws.additionalEventData.LoginTo",
-        "aws.additionalEventData.MFAUsed", "aws.additionalEventData.MFAIdentifier",
-        "aws.additionalEventData.MobileVersion", "aws.additionalEventData.CredentialType",
-        "aws.additionalEventData.AuthWorkflowID", "aws.additionalEventData.keyMaterialId",
+        "aws.additionalEventData.UserName",
+        "aws.additionalEventData.LoginTo",
+        "aws.additionalEventData.MFAUsed",
+        "aws.additionalEventData.MFAIdentifier",
+        "aws.additionalEventData.MobileVersion",
+        "aws.additionalEventData.CredentialType",
+        "aws.additionalEventData.AuthWorkflowID",
+        "aws.additionalEventData.keyMaterialId",
         // tlsDetails
-        "aws.tlsDetails.tlsVersion", "aws.tlsDetails.cipherSuite",
-        "aws.tlsDetails.keyExchange", "aws.tlsDetails.clientProvidedHostHeader",
+        "aws.tlsDetails.tlsVersion",
+        "aws.tlsDetails.cipherSuite",
+        "aws.tlsDetails.keyExchange",
+        "aws.tlsDetails.clientProvidedHostHeader",
         // responseElements (typed columns + extensions)
-        "aws.responseElements.ConsoleLogin", "aws.responseElements.status",
-        "aws.responseElements.publicIp", "aws.responseElements.networkInterfaceId",
-        "aws.responseElements.allocationId", "aws.responseElements.snapshotId",
+        "aws.responseElements.ConsoleLogin",
+        "aws.responseElements.status",
+        "aws.responseElements.publicIp",
+        "aws.responseElements.networkInterfaceId",
+        "aws.responseElements.allocationId",
+        "aws.responseElements.snapshotId",
         "aws.responseElements.volumeId",
         // requestParameters (extensions)
-        "aws.requestParameters.keyId", "aws.requestParameters.networkInterfaceId",
-        "aws.requestParameters.groupId", "aws.requestParameters.subnetId",
-        "aws.requestParameters.snapshotId", "aws.requestParameters.volumeId",
+        "aws.requestParameters.keyId",
+        "aws.requestParameters.networkInterfaceId",
+        "aws.requestParameters.groupId",
+        "aws.requestParameters.subnetId",
+        "aws.requestParameters.snapshotId",
+        "aws.requestParameters.volumeId",
         "aws.requestParameters.allocationId",
         // resources, log_info
-        "aws.resources.ARN", "aws.resources.type", "aws.resources.accountId",
-        "aws.log_info.log_file", "aws.log_info.s3bucket",
+        "aws.resources.ARN",
+        "aws.resources.type",
+        "aws.resources.accountId",
+        "aws.log_info.log_file",
+        "aws.log_info.s3bucket",
         // serviceEventDetails
         "aws.serviceEventDetails.UserAuthentication",
         "aws.serviceEventDetails.state",
@@ -208,7 +297,9 @@ static KNOWN_PATHS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
         "aws.serviceEventDetails.CredentialVerification",
         "aws.serviceEventDetails.backupVaultName",
         "aws.serviceEventDetails.resourceType",
-    ] { s.insert(p); }
+    ] {
+        s.insert(p);
+    }
 
     // ── AWS requestParameters / responseElements deep nested fields ──────────
     // These are EC2/CloudTrail API parameters that vary per-call.  They are
@@ -221,7 +312,7 @@ static KNOWN_PATHS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
 /// Per-field stats accumulated at runtime.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct FieldInfo {
-    pub(crate) count:   u64,
+    pub(crate) count: u64,
     pub(crate) example: String,
 }
 
@@ -235,20 +326,24 @@ pub(crate) fn track_unmapped_fields(data_val: &Value, custom: &CustomMappings) {
     let mut leaves: Vec<(String, String)> = Vec::new();
     flatten_to_paths(data_val, "", &mut leaves);
 
-    if leaves.is_empty() { return; }
+    if leaves.is_empty() {
+        return;
+    }
 
-    let custom_keys: HashSet<&str> = custom.field_map.keys()
-        .map(|s| s.as_str())
-        .collect();
+    let custom_keys: HashSet<&str> = custom.field_map.keys().map(|s| s.as_str()).collect();
 
     let mut guard = match UNMAPPED_TRACKER.lock() {
-        Ok(g)  => g,
+        Ok(g) => g,
         Err(e) => e.into_inner(),
     };
 
     for (path, example) in leaves {
-        if KNOWN_PATHS.contains(path.as_str()) { continue; }
-        if custom_keys.contains(path.as_str()) { continue; }
+        if KNOWN_PATHS.contains(path.as_str()) {
+            continue;
+        }
+        if custom_keys.contains(path.as_str()) {
+            continue;
+        }
         // Suppress deeply-nested AWS API parameters/response fields — these are
         // per-call EC2/service payloads (tag arrays, ipPermissions items, etc.)
         // that have no standard OCSF mapping and would flood the report.
@@ -257,7 +352,7 @@ pub(crate) fn track_unmapped_fields(data_val: &Value, custom: &CustomMappings) {
         }
 
         let entry = guard.entry(path.clone()).or_insert_with(|| FieldInfo {
-            count:   0,
+            count: 0,
             example: example.clone(),
         });
         entry.count += 1;
@@ -271,17 +366,27 @@ pub(crate) fn track_unmapped_fields(data_val: &Value, custom: &CustomMappings) {
 /// before the current session's in-memory tracker is reset on startup.
 /// This preserves the previous run's discoveries so nothing is lost on restart.
 pub(crate) fn archive_unmapped_report(path: &Path) {
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
     let ts = Utc::now().format("%Y%m%dT%H%M%SZ");
     let archive = path.with_file_name(format!(
         "{}.{ts}.bak",
-        path.file_stem().and_then(|s| s.to_str()).unwrap_or("unmapped_fields")
+        path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unmapped_fields")
     ));
     if let Err(e) = std::fs::rename(path, &archive) {
-        warn!("unmapped_fields: archive failed ({} → {}): {e}",
-              path.display(), archive.display());
+        warn!(
+            "unmapped_fields: archive failed ({} → {}): {e}",
+            path.display(),
+            archive.display()
+        );
     } else {
-        info!("unmapped_fields: previous report archived → {}", archive.display());
+        info!(
+            "unmapped_fields: previous report archived → {}",
+            archive.display()
+        );
     }
 }
 
@@ -290,10 +395,12 @@ pub(crate) fn archive_unmapped_report(path: &Path) {
 /// to keep the file simple and scannable.
 pub(crate) fn write_unmapped_report(path: &Path) {
     let guard = match UNMAPPED_TRACKER.lock() {
-        Ok(g)  => g,
+        Ok(g) => g,
         Err(e) => e.into_inner(),
     };
-    if guard.is_empty() { return; }
+    if guard.is_empty() {
+        return;
+    }
 
     // Sort by descending occurrence count so the most common unknowns appear first.
     let mut fields: Vec<(&String, &FieldInfo)> = guard.iter().collect();

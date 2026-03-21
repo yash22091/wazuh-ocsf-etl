@@ -381,7 +381,7 @@ fi
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=Wazuh → OCSF → ClickHouse ETL pipeline
-Documentation=https://github.com/yash22091/wazuh-ocsf-etl
+Documentation=https://github.com/mranv/wazuh-ocsf-etl
 After=network.target
 # Uncomment if ClickHouse runs on the same host:
 # After=network.target clickhouse-server.service

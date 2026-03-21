@@ -1642,7 +1642,7 @@ At 10,000 EPS the validator adds roughly 0–1 µs per event (all hot-cache inte
 
 Wazuh ships with **171 decoder files** covering over 300 distinct log sources (Linux syslog, Windows Event Log, Cisco, Palo Alto, Fortinet, AWS, GCP, Okta, Zeek, Suricata, Docker, MS Graph, Office365, and many more). Together they produce over **1,200 unique field names** across all sources — no two vendors agree on naming.
 
-This pipeline consolidates all field names to **29 typed OCSF ClickHouse columns** through the field resolver (`src/field_paths.rs`), which holds **567 source-name variants** (audited from all 171 decoder files and all 171 rule files) mapped to those 29 targets. Zero data is lost — vendor-opaque fields that have no OCSF equivalent are written to the `extensions` JSON column intact.
+This pipeline consolidates all field names to **29 typed OCSF ClickHouse columns** through the field resolver (`src/pipeline/field_paths.rs`), which holds **567 source-name variants** (audited from all 171 decoder files and all 171 rule files) mapped to those 29 targets. Zero data is lost — vendor-opaque fields that have no OCSF equivalent are written to the `extensions` JSON column intact.
 
 ### Coverage summary
 
@@ -1700,7 +1700,7 @@ All 29 extraction arrays were audited against the OCSF 1.7.0 attribute dictionar
 
 Promote any field from `extensions` to a typed column either:
 - **At runtime** via `config/field_mappings.toml` — hot-reloaded within 10 s, no restart. See [9](#9-custom-field-mappings).
-- **At compile time** — add a source variant to the appropriate constant in `src/field_paths.rs` and rebuild.
+- **At compile time** — add a source variant to the appropriate constant in `src/pipeline/field_paths.rs` and rebuild.
 
 Use the unmapped-field report ([11](#11-unmapped-field-discovery)) to identify the highest-frequency unmapped fields from live traffic before deciding which to promote.
 

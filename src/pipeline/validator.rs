@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use tracing::warn;
 
-use crate::record::OcsfRecord;
+use super::record::OcsfRecord;
 
 // ─── OCSF 1.7.0 schema validator ─────────────────────────────────────────────
 //
@@ -19,16 +19,11 @@ pub(crate) static OCSF_VIOLATION_COUNT: AtomicU64 = AtomicU64::new(0);
 
 const VALID_CLASS_UIDS: &[u32] = &[
     // Cat 1 — System Activity
-    1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008,
-    // Cat 2 — Findings
-    2001, 2002, 2003, 2004, 2005, 2006,
-    // Cat 3 — Identity & Access Management
-    3001, 3002, 3003, 3004, 3005, 3006,
-    // Cat 4 — Network Activity
-    4001, 4002, 4003, 4004, 4005, 4006, 4007,
-    // Cat 5 — Discovery
-    5001, 5002, 5003, 5004,
-    // Cat 6 — Application Activity
+    1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, // Cat 2 — Findings
+    2001, 2002, 2003, 2004, 2005, 2006, // Cat 3 — Identity & Access Management
+    3001, 3002, 3003, 3004, 3005, 3006, // Cat 4 — Network Activity
+    4001, 4002, 4003, 4004, 4005, 4006, 4007, // Cat 5 — Discovery
+    5001, 5002, 5003, 5004, // Cat 6 — Application Activity
     6001, 6002, 6003, 6004, 6005,
 ];
 
@@ -45,7 +40,7 @@ fn valid_activity_ids_for_class(class_uid: u32) -> Option<&'static [u8]> {
         4002 => Some(&[1, 2, 3, 4, 5, 6, 7, 99]),
         4003 => Some(&[1, 2, 3, 99]),
         4004 => Some(&[1, 2, 3, 4, 99]),
-        _    => None,
+        _ => None,
     }
 }
 
@@ -57,7 +52,7 @@ fn expected_category(class_uid: u32) -> Option<(u32, &'static str)> {
         4001..=4099 => Some((4, "Network Activity")),
         5001..=5099 => Some((5, "Discovery")),
         6001..=6099 => Some((6, "Application Activity")),
-        _           => None,
+        _ => None,
     }
 }
 
@@ -97,7 +92,9 @@ pub(crate) fn validate_ocsf_record(rec: &OcsfRecord) -> Vec<&'static str> {
 
 /// Run the validator and emit warnings on violations.  Called from `transform()`.
 pub(crate) fn check_and_warn(rec: &OcsfRecord) {
-    if !OCSF_VALIDATE.load(Ordering::Relaxed) { return; }
+    if !OCSF_VALIDATE.load(Ordering::Relaxed) {
+        return;
+    }
     let violations = validate_ocsf_record(rec);
     if !violations.is_empty() {
         OCSF_VIOLATION_COUNT.fetch_add(violations.len() as u64, Ordering::Relaxed);

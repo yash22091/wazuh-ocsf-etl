@@ -44,12 +44,46 @@ Delivery semantics:
 - `file` mode: at-least-once with restart-safe resume via state file
 - `zeromq` mode: at-most-once (lower latency, but no replay)
 
+## Source layout
+
+```text
+src/
+├── main.rs              # Binary entry point
+├── config.rs            # Configuration + custom mappings
+├── tests.rs             # All 119 tests
+├── pipeline/            # OCSF transformation core
+│   ├── mod.rs
+│   ├── classify.rs      # Event classification
+│   ├── field_paths.rs   # Field path constants
+│   ├── record.rs        # OcsfRecord struct
+│   ├── transform.rs     # Wazuh -> OCSF transform
+│   └── validator.rs     # OCSF schema validation
+├── input/               # Data ingestion
+│   ├── mod.rs
+│   ├── state.rs         # Tail state persistence
+│   ├── tailer.rs        # File tailing
+│   └── zmq.rs           # ZeroMQ subscriber
+├── output/              # Data output
+│   ├── mod.rs
+│   └── db.rs            # ClickHouse operations
+└── util/                # Shared utilities
+    ├── mod.rs
+    ├── json.rs          # JSON navigation helpers
+    └── unmapped.rs      # Unmapped field tracking
+```
+
+Supporting files:
+- `rust-toolchain.toml` -- pins Rust 1.91.1
+- `.cargo/config.toml` -- build settings and `cargo ci` alias
+- `rustfmt.toml` -- formatting configuration
+- `Cargo.toml` `[lints]` section -- clippy warnings, `forbid(unsafe_code)`
+
 ## Quick start
 
 1. Clone and enter the repo
 
 ```bash
-git clone https://github.com/yash22091/wazuh-ocsf-etl.git
+git clone https://github.com/mranv/wazuh-ocsf-etl.git
 cd wazuh-ocsf-etl
 ```
 
@@ -79,7 +113,7 @@ journalctl -u wazuh-ocsf-etl -f
 ## Prerequisites
 
 - Linux x86_64
-- Rust 1.75+ (build time)
+- Rust 1.91.1+ (pinned via `rust-toolchain.toml`)
 - ClickHouse 22.x+
 - Wazuh manager 4.x with JSON output enabled
 
